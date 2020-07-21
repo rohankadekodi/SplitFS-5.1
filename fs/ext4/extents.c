@@ -3828,6 +3828,7 @@ static int ext4_convert_unwritten_extents_endio(handle_t *handle,
 	err = ext4_ext_dirty(handle, inode, path + path->p_depth);
 out:
 	ext4_ext_show_leaf(inode, path);
+	ext4_fc_track_range(inode, ee_block, ee_block + ee_len - 1);
 	return err;
 }
 
@@ -3955,6 +3956,7 @@ convert_initialized_extent(handle_t *handle, struct inode *inode,
 	if (allocated > map->m_len)
 		allocated = map->m_len;
 	map->m_len = allocated;
+	ext4_fc_track_range(inode, ee_block, ee_block + ee_len - 1);
 	return allocated;
 }
 
@@ -4494,6 +4496,7 @@ out:
 	map->m_flags |= EXT4_MAP_MAPPED;
 	map->m_pblk = newblock;
 	map->m_len = allocated;
+	ext4_fc_track_range(inode, map->m_lblk, map->m_len);
 out2:
 	ext4_ext_drop_refs(path);
 	kfree(path);
@@ -4769,6 +4772,8 @@ static long ext4_zero_range(struct file *file, loff_t offset,
 			ext4_set_inode_flag(inode, EXT4_INODE_EOFBLOCKS);
 	}
 	ext4_mark_inode_dirty(handle, inode);
+	ext4_fc_track_range(inode, offset >> inode->i_sb->s_blocksize_bits,
+			(offset + len - 1) >> inode->i_sb->s_blocksize_bits);
 
 	/* Zero out partial block at the edges of the range */
 	ret = ext4_zero_partial_blocks(handle, inode, offset, len);
@@ -4821,23 +4826,34 @@ long ext4_fallocate(struct file *file, int mode, loff_t offset, loff_t len)
 		     FALLOC_FL_COLLAPSE_RANGE | FALLOC_FL_ZERO_RANGE |
 		     FALLOC_FL_INSERT_RANGE))
 		return -EOPNOTSUPP;
+	ext4_fc_track_range(inode, offset >> blkbits,
+			(offset + len - 1) >> blkbits);
 
-	if (mode & FALLOC_FL_PUNCH_HOLE)
-		return ext4_punch_hole(inode, offset, len);
+	ext4_fc_start_update(inode);
+
+	if (mode & FALLOC_FL_PUNCH_HOLE) {
+		ret = ext4_punch_hole(inode, offset, len);
+		goto exit;
+	}
 
 	ret = ext4_convert_inline_data(inode);
 	if (ret)
-		return ret;
+		goto exit;
 
-	if (mode & FALLOC_FL_COLLAPSE_RANGE)
-		return ext4_collapse_range(inode, offset, len);
+	if (mode & FALLOC_FL_COLLAPSE_RANGE) {
+		ret = ext4_collapse_range(inode, offset, len);
+		goto exit;
+	}
 
-	if (mode & FALLOC_FL_INSERT_RANGE)
-		return ext4_insert_range(inode, offset, len);
+	if (mode & FALLOC_FL_INSERT_RANGE) {
+		ret = ext4_insert_range(inode, offset, len);
+		goto exit;
+	}
 
-	if (mode & FALLOC_FL_ZERO_RANGE)
-		return ext4_zero_range(file, offset, len, mode);
-
+	if (mode & FALLOC_FL_ZERO_RANGE) {
+		ret = ext4_zero_range(file, offset, len, mode);
+		goto exit;
+	}
 	trace_ext4_fallocate_enter(inode, offset, len, mode);
 	lblk = offset >> blkbits;
 
@@ -4873,12 +4889,14 @@ long ext4_fallocate(struct file *file, int mode, loff_t offset, loff_t len)
 		goto out;
 
 	if (file->f_flags & O_SYNC && EXT4_SB(inode->i_sb)->s_journal) {
-		ret = jbd2_complete_transaction(EXT4_SB(inode->i_sb)->s_journal,
-						EXT4_I(inode)->i_sync_tid);
+		ret = ext4_fc_commit(EXT4_SB(inode->i_sb)->s_journal,
+					EXT4_I(inode)->i_sync_tid);
 	}
 out:
 	inode_unlock(inode);
 	trace_ext4_fallocate_exit(inode, offset, max_blocks, ret);
+exit:
+	ext4_fc_stop_update(inode);
 	return ret;
 }
 
@@ -5435,6 +5453,7 @@ int ext4_collapse_range(struct inode *inode, loff_t offset, loff_t len)
 		ret = PTR_ERR(handle);
 		goto out_mmap;
 	}
+	ext4_fc_start_ineligible(sb, EXT4_FC_REASON_FALLOC_RANGE);
 
 	down_write(&EXT4_I(inode)->i_data_sem);
 	ext4_discard_preallocations(inode);
@@ -5473,6 +5492,7 @@ int ext4_collapse_range(struct inode *inode, loff_t offset, loff_t len)
 
 out_stop:
 	ext4_journal_stop(handle);
+	ext4_fc_stop_ineligible(sb);
 out_mmap:
 	up_write(&EXT4_I(inode)->i_mmap_sem);
 out_mutex:
@@ -5577,6 +5597,7 @@ int ext4_insert_range(struct inode *inode, loff_t offset, loff_t len)
 		ret = PTR_ERR(handle);
 		goto out_mmap;
 	}
+	ext4_fc_start_ineligible(sb, EXT4_FC_REASON_FALLOC_RANGE);
 
 	/* Expand file to avoid data loss if there is error while shifting */
 	inode->i_size += len;
@@ -5651,6 +5672,7 @@ int ext4_insert_range(struct inode *inode, loff_t offset, loff_t len)
 
 out_stop:
 	ext4_journal_stop(handle);
+	ext4_fc_stop_ineligible(sb);
 out_mmap:
 	up_write(&EXT4_I(inode)->i_mmap_sem);
 out_mutex:

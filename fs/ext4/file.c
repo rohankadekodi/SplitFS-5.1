@@ -229,9 +229,12 @@ ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	if (!o_direct && (iocb->ki_flags & IOCB_NOWAIT))
 		return -EOPNOTSUPP;
 
+	ext4_fc_start_update(inode);
 	if (!inode_trylock(inode)) {
-		if (iocb->ki_flags & IOCB_NOWAIT)
+		if (iocb->ki_flags & IOCB_NOWAIT) {
+			ext4_fc_stop_update(inode);
 			return -EAGAIN;
+		}
 		inode_lock(inode);
 	}
 
@@ -265,6 +268,7 @@ ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 
 	ret = __generic_file_write_iter(iocb, from);
 	inode_unlock(inode);
+	ext4_fc_stop_update(inode);
 
 	if (ret > 0)
 		ret = generic_write_sync(iocb, ret);
@@ -273,6 +277,7 @@ ext4_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
 
 out:
 	inode_unlock(inode);
+	ext4_fc_stop_update(inode);
 	return ret;
 }
 
@@ -371,6 +376,7 @@ static int ext4_file_mmap(struct file *file, struct vm_area_struct *vma)
 	if (!IS_DAX(file_inode(file)) && (vma->vm_flags & VM_SYNC))
 		return -EOPNOTSUPP;
 
+	ext4_fc_start_update(inode);
 	file_accessed(file);
 	if (IS_DAX(file_inode(file))) {
 		vma->vm_ops = &ext4_dax_vm_ops;
@@ -378,6 +384,7 @@ static int ext4_file_mmap(struct file *file, struct vm_area_struct *vma)
 	} else {
 		vma->vm_ops = &ext4_file_vm_ops;
 	}
+	ext4_fc_stop_update(inode);
 	return 0;
 }
 

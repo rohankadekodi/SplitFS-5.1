@@ -1917,7 +1917,7 @@ static int ext4_fc_replay_scan(journal_t *journal,
 				break;
 			}
 			if (le32_to_cpu(head->fc_tid) != expected_tid) {
-				ret = -EINVAL;
+				ret = JBD2_FC_REPLAY_STOP;
 				break;
 			}
 			state->fc_cur_tag++;

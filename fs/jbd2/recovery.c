@@ -268,6 +268,8 @@ static int fc_do_one_pass(journal_t *journal,
 	if (err)
 		jbd_debug(3, "Fast commit replay failed, err = %d\n", err);
 
+	printk(KERN_ERR "fc replay returned %d\n", err);
+
 	return err;
 }
 
@@ -844,8 +846,11 @@ static int do_one_pass(journal_t *journal,
 		}
 	}
 
-	if (jbd2_has_feature_fast_commit(journal) && pass != PASS_REVOKE)
-		fc_do_one_pass(journal, info, pass);
+	if (jbd2_has_feature_fast_commit(journal) &&  pass != PASS_REVOKE) {
+		err = fc_do_one_pass(journal, info, pass);
+		if (err)
+			success = err;
+	}
 
 	if (block_error && success == 0)
 		success = -EIO;

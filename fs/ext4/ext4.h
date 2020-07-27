@@ -2503,6 +2503,9 @@ extern int ext4_group_add_blocks(handle_t *handle, struct super_block *sb,
 				ext4_fsblk_t block, unsigned long count);
 extern int ext4_trim_fs(struct super_block *, struct fstrim_range *);
 extern void ext4_process_freed_data(struct super_block *sb, tid_t commit_tid);
+extern void ext4_mb_mark_bb(struct super_block *sb, ext4_fsblk_t block,
+		       int len, int state);
+
 
 /* inode.c */
 void ext4_inode_csum_set(struct inode *inode, struct ext4_inode *raw,
@@ -3253,6 +3256,7 @@ extern void ext4_ext_replay_shrink_inode(struct inode *inode, ext4_lblk_t end);
 extern int ext4_ext_replay_set_iblocks(struct inode *inode);
 extern int ext4_ext_replay_update_ex(struct inode *inode, ext4_lblk_t start,
 		int len, int unwritten, ext4_fsblk_t pblk);
+extern int ext4_ext_clear_bb(struct inode *inode);
 
 /* move_extent.c */
 extern void ext4_double_down_write_data_sem(struct inode *first,

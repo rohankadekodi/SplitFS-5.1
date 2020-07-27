@@ -1043,7 +1043,7 @@ static int ext4_fc_perform_commit(journal_t *journal)
 		 * record only partial inode here.
 		 */
 		ret = ext4_fc_commit_inode(journal, inode, &crc,
-						EXT4_FC_TAG_INODE_PARTIAL);
+						EXT4_FC_TAG_INODE_FULL);
 		if (ret)
 			return ret;
 		spin_lock(&sbi->s_fc_lock);
@@ -1343,6 +1343,33 @@ static int ext4_fc_replay_link(struct super_block *sb, struct ext4_fc_tl *tl)
 }
 
 /*
+ * Record all the modified inodes during replay. We use this later to setup
+ * block bitmaps correctly.
+ */
+static int ext4_fc_record_modified_inode(struct super_block *sb, int ino)
+{
+	struct ext4_fc_replay_state *state;
+	int i;
+
+	state = &EXT4_SB(sb)->s_fc_replay_state;
+	for (i = 0; i < state->fc_modified_inodes_used; i++)
+		if (state->fc_modified_inodes[i] == ino)
+			return 0;
+	if (state->fc_modified_inodes_used == state->fc_modified_inodes_size) {
+		state->fc_modified_inodes_size +=
+			EXT4_FC_REPLAY_REALLOC_INCREMENT;
+		state->fc_modified_inodes = krealloc(
+					state->fc_modified_inodes, sizeof(int) *
+					state->fc_modified_inodes_size,
+					GFP_KERNEL);
+		if (!state->fc_modified_inodes)
+			return -ENOMEM;
+	}
+	state->fc_modified_inodes[state->fc_modified_inodes_used++] = ino;
+	return 0;
+}
+
+/*
  * Inode replay function
  *
  * If the tag is EXT4_FC_TAG_INODE_FULL, copy the entire inode to its location.
@@ -1362,6 +1389,14 @@ static int ext4_fc_replay_inode(struct super_block *sb, struct ext4_fc_tl *tl)
 
 	ino = le32_to_cpu(fc_inode->fc_ino);
 	trace_ext4_fc_replay(sb, tag, ino, 0, 0);
+
+	inode = ext4_iget(sb, ino, EXT4_IGET_NORMAL);
+	if (!IS_ERR_OR_NULL(inode)) {
+		ext4_ext_clear_bb(inode);
+		iput(inode);
+	}
+
+	ext4_fc_record_modified_inode(sb, ino);
 
 	raw_fc_inode = fc_inode->fc_raw_inode;
 	ret = ext4_get_fc_inode_loc(sb, ino, &iloc);
@@ -1401,8 +1436,8 @@ static int ext4_fc_replay_inode(struct super_block *sb, struct ext4_fc_tl *tl)
 	 * crashing. This should be fixed but until then, we calculate
 	 * the number of blocks the inode.
 	 */
-	if (tag == EXT4_FC_TAG_INODE_PARTIAL)
-		ext4_ext_replay_set_iblocks(inode);
+	//if (tag == EXT4_FC_TAG_INODE_PARTIAL)
+	//	ext4_ext_replay_set_iblocks(inode);
 
 	inode->i_generation = le32_to_cpu(ext4_raw_inode(&iloc)->i_generation);
 	ext4_reset_inode_seed(inode);
@@ -1477,33 +1512,6 @@ out:
 	if (inode)
 		iput(inode);
 	return ret;
-}
-
-/*
- * Record all the modified inodes during replay. We use this later to setup
- * block bitmaps correctly.
- */
-static int ext4_fc_record_modified_inode(struct super_block *sb, int ino)
-{
-	struct ext4_fc_replay_state *state;
-	int i;
-
-	state = &EXT4_SB(sb)->s_fc_replay_state;
-	for (i = 0; i < state->fc_modified_inodes_used; i++)
-		if (state->fc_modified_inodes[i] == ino)
-			return 0;
-	if (state->fc_modified_inodes_used == state->fc_modified_inodes_size) {
-		state->fc_modified_inodes_size +=
-			EXT4_FC_REPLAY_REALLOC_INCREMENT;
-		state->fc_modified_inodes = krealloc(
-					state->fc_modified_inodes, sizeof(int) *
-					state->fc_modified_inodes_size,
-					GFP_KERNEL);
-		if (!state->fc_modified_inodes)
-			return -ENOMEM;
-	}
-	state->fc_modified_inodes[state->fc_modified_inodes_used++] = ino;
-	return 0;
 }
 
 /*
@@ -1604,6 +1612,7 @@ static int ext4_fc_replay_add_range(struct super_block *sb,
 			ret = ext4_ext_insert_extent(
 				NULL, inode, &path, &newex, 0);
 			up_write((&EXT4_I(inode)->i_data_sem));
+			ext4_ext_drop_refs(path);
 			kfree(path);
 			if (ret) {
 				iput(inode);
@@ -1742,12 +1751,15 @@ void ext4_fc_set_bitmaps_and_counters(struct super_block *sb)
 {
 	struct ext4_fc_replay_state *state;
 	struct inode *inode;
+	struct ext4_ext_path *path = NULL;
 	struct ext4_map_blocks map;
-	int i, ret;
+	int i, ret, j;
 	ext4_lblk_t cur, size, end;
 
 	state = &EXT4_SB(sb)->s_fc_replay_state;
+	//printk(KERN_ERR "Writing bitmaps and counters\n");
 	for (i = 0; i < state->fc_modified_inodes_used; i++) {
+		//printk(KERN_ERR "Inode %d modified]\n", state->fc_modified_inodes[i]);
 		inode = ext4_iget(sb, state->fc_modified_inodes[i],
 			EXT4_IGET_NORMAL);
 		if (IS_ERR_OR_NULL(inode)) {
@@ -1757,7 +1769,8 @@ void ext4_fc_set_bitmaps_and_counters(struct super_block *sb)
 		}
 		cur = 0;
 		size = EXT_MAX_BLOCKS;
-		end = ((size - 1) >> sb->s_blocksize_bits) + cur;
+		//end = ((size - 1) >> sb->s_blocksize_bits) + cur;
+		end = EXT_MAX_BLOCKS;
 		while (cur < end) {
 			map.m_lblk = cur;
 			map.m_len = end - cur;
@@ -1765,8 +1778,23 @@ void ext4_fc_set_bitmaps_and_counters(struct super_block *sb)
 			ret = ext4_map_blocks(NULL, inode, &map, 0);
 			if (ret < 0)
 				break;
+
 			if (ret > 0) {
+				path = ext4_find_extent(inode, map.m_lblk, NULL, 0);
+				if (!IS_ERR_OR_NULL(path)) {
+					for (j = 0; j < path->p_depth; j++) {
+						if (!path[j].p_bh)
+							continue;
+						ext4_mb_mark_bb(inode->i_sb,
+								path[j].p_bh->b_blocknr, 1,
+								1);
+					}
+					ext4_ext_drop_refs(path);
+					kfree(path);
+				}
 				cur += ret;
+				/* printk(KERN_ERR "Marking %lld-%lld as used", */
+				/*        map.m_pblk, map.m_pblk - map.m_len); */
 				ext4_mb_mark_bb(inode->i_sb, map.m_pblk,
 							map.m_len, 1);
 			} else {
@@ -1951,6 +1979,8 @@ static int ext4_fc_replay(journal_t *journal, struct buffer_head *bh,
 	int ret = JBD2_FC_REPLAY_CONTINUE;
 	struct ext4_fc_replay_state *state = &sbi->s_fc_replay_state;
 	struct ext4_fc_tail *tail;
+
+	//return JBD2_FC_REPLAY_STOP;
 
 	if (pass == PASS_SCAN) {
 		state->fc_current_pass = PASS_SCAN;

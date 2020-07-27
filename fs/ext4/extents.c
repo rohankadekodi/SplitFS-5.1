@@ -6166,3 +6166,54 @@ out:
 	ext4_mark_inode_dirty(NULL, inode);
 	return 0;
 }
+
+int ext4_ext_clear_bb(struct inode *inode)
+{
+	struct ext4_ext_path *path = NULL;
+	struct ext4_extent *ex;
+	ext4_lblk_t cur = 0, end;
+	int i, j, ret = 0;
+	struct ext4_map_blocks map;
+
+	/* Determin the size of the file first */
+	path = ext4_find_extent(inode, EXT_MAX_BLOCKS - 1, NULL,
+					EXT4_EX_NOCACHE);
+	if (IS_ERR(path))
+		return PTR_ERR(path);
+	ex = path[path->p_depth].p_ext;
+	if (!ex) {
+		ext4_ext_drop_refs(path);
+		kfree(path);
+		return 0;
+	}
+	end = le32_to_cpu(ex->ee_block) + ext4_ext_get_actual_len(ex);
+	ext4_ext_drop_refs(path);
+	kfree(path);
+
+	cur = 0;
+	while (cur < end) {
+		map.m_lblk = cur;
+		map.m_len = end - cur;
+		ret = ext4_map_blocks(NULL, inode, &map, 0);
+		if (ret < 0)
+			break;
+		if (ret > 0) {
+			path = ext4_find_extent(inode, map.m_lblk, NULL, 0);
+			if (!IS_ERR_OR_NULL(path)) {
+				for (j = 0; j < path->p_depth; j++) {
+					if (!path[j].p_bh)
+						continue;
+					ext4_mb_mark_bb(inode->i_sb,
+							path[j].p_bh->b_blocknr, 1,
+							0);
+				}
+				ext4_ext_drop_refs(path);
+				kfree(path);
+			}
+			ext4_mb_mark_bb(inode->i_sb, map.m_pblk, map.m_len, 0);
+		}
+		cur = cur + map.m_len;
+	}
+
+	return 0;
+}

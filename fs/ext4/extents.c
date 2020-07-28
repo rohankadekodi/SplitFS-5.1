@@ -6201,10 +6201,8 @@ int ext4_ext_clear_bb(struct inode *inode)
 			path = ext4_find_extent(inode, map.m_lblk, NULL, 0);
 			if (!IS_ERR_OR_NULL(path)) {
 				for (j = 0; j < path->p_depth; j++) {
-					if (!path[j].p_bh)
-						continue;
 					ext4_mb_mark_bb(inode->i_sb,
-							path[j].p_bh->b_blocknr, 1,
+							path[j].p_block, 1,
 							0);
 				}
 				ext4_ext_drop_refs(path);

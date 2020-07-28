@@ -37,14 +37,10 @@
  *
  * (C) Inode metadata (mtime / ctime etc):
  *
- * - EXT4_FC_TAG_INODE_FULL	- record the inode that should be replayed as is
+ * - EXT4_FC_TAG_INODE		- record the inode that should be replayed as is
  *				  during recovery. This tag is useful for
  *				  setting up a new inode. This tag is necessary
  *				  for CREAT tag.
- * - EXT4_FC_TAG_INODE_PARTIAL	- record the inode that should only partially be
- *				  be replayed during recovery. This tag is
- *				  useful when the same inode has had updates
- *				  recorded as ADD_RANGE or DEL_RANGE tags.
  *
  * Commit Operation
  * ----------------
@@ -828,21 +824,14 @@ static int ext4_fc_commit_inode(journal_t *journal, struct inode *inode,
 				u32 *crc, int tag)
 {
 	int ret;
-	int commit_full_inode =
-		tag == EXT4_FC_TAG_INODE_FULL || ext4_has_inline_data(inode);
 
-	if (commit_full_inode) {
-		ret = ext4_fc_write_inode(inode, crc, tag);
-		if (ret < 0)
-			return ret;
-	}
+	ret = ext4_fc_write_inode(inode, crc, tag);
+	if (ret < 0)
+		return ret;
 
 	ret = ext4_fc_write_data(inode, crc);
 	if (ret < 0)
 		return ret;
-
-	if (!commit_full_inode)
-		ret = ext4_fc_write_inode(inode, crc, tag);
 
 	return ret;
 }
@@ -1407,13 +1396,6 @@ static int ext4_fc_replay_inode(struct super_block *sb, struct ext4_fc_tl *tl)
 
 	if (tag == EXT4_FC_TAG_INODE_FULL) {
 		memcpy(ext4_raw_inode(&iloc), raw_fc_inode, inode_len);
-	} else {
-		memcpy(ext4_raw_inode(&iloc), raw_fc_inode,
-			offsetof(struct ext4_inode, i_block));
-		memcpy(&ext4_raw_inode(&iloc)->i_generation,
-			&((struct ext4_inode *)(raw_fc_inode))->i_generation,
-			inode_len -
-			offsetof(struct ext4_inode, i_generation));
 	}
 
 	/* Immediately update the inode on disk. */
@@ -1783,10 +1765,8 @@ void ext4_fc_set_bitmaps_and_counters(struct super_block *sb)
 				path = ext4_find_extent(inode, map.m_lblk, NULL, 0);
 				if (!IS_ERR_OR_NULL(path)) {
 					for (j = 0; j < path->p_depth; j++) {
-						if (!path[j].p_bh)
-							continue;
 						ext4_mb_mark_bb(inode->i_sb,
-								path[j].p_bh->b_blocknr, 1,
+								path[j].p_block, 1,
 								1);
 					}
 					ext4_ext_drop_refs(path);
@@ -1913,7 +1893,6 @@ static int ext4_fc_replay_scan(journal_t *journal,
 		case EXT4_FC_TAG_UNLINK:
 		case EXT4_FC_TAG_CREAT:
 		case EXT4_FC_TAG_INODE_FULL:
-		case EXT4_FC_TAG_INODE_PARTIAL:
 		case EXT4_FC_TAG_PAD:
 			state->fc_cur_tag++;
 			state->fc_crc = ext4_chksum(sbi, state->fc_crc, tl,
@@ -1980,7 +1959,7 @@ static int ext4_fc_replay(journal_t *journal, struct buffer_head *bh,
 	struct ext4_fc_replay_state *state = &sbi->s_fc_replay_state;
 	struct ext4_fc_tail *tail;
 
-	//return JBD2_FC_REPLAY_STOP;
+	return JBD2_FC_REPLAY_STOP;
 
 	if (pass == PASS_SCAN) {
 		state->fc_current_pass = PASS_SCAN;
@@ -2032,7 +2011,6 @@ static int ext4_fc_replay(journal_t *journal, struct buffer_head *bh,
 		case EXT4_FC_TAG_DEL_RANGE:
 			ret = ext4_fc_replay_del_range(sb, tl);
 			break;
-		case EXT4_FC_TAG_INODE_PARTIAL:
 		case EXT4_FC_TAG_INODE_FULL:
 			ret = ext4_fc_replay_inode(sb, tl);
 			break;

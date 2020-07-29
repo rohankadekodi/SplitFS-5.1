@@ -6172,7 +6172,7 @@ int ext4_ext_clear_bb(struct inode *inode)
 	struct ext4_ext_path *path = NULL;
 	struct ext4_extent *ex;
 	ext4_lblk_t cur = 0, end;
-	int i, j, ret = 0;
+	int j, ret = 0;
 	struct ext4_map_blocks map;
 
 	/* Determin the size of the file first */

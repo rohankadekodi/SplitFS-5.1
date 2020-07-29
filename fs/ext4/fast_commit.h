@@ -18,6 +18,9 @@
 #define EXT4_FC_TAG_TAIL		0x0009
 #define EXT4_FC_TAG_HEAD		0x000A
 
+#define EXT4_FC_TAG_FLAGS_MASK		0xF000
+#define EXT4_FC_TAG_ATOMIC		0x1000
+
 #define EXT4_FC_SUPPORTED_FEATURES	0x0
 
 /* On disk fast commit tlv value structures */

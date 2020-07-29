@@ -100,6 +100,10 @@ int __ext4_journal_stop(const char *where, unsigned int line, handle_t *handle)
 	}
 
 	sb = handle->h_transaction->t_journal->j_private;
+	if (test_opt(sb, DAX) &&
+	    (EXT4_SB(sb)->s_mount_opt &
+	     (EXT4_FC_NEED_COMMIT | EXT4_FC_INELIGIBLE)))
+		handle->h_sync = 1;
 	rc = jbd2_journal_stop(handle);
 
 	if (!err)

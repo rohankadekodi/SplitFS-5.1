@@ -43,6 +43,7 @@
 #include <linux/fscrypt.h>
 
 #include <linux/compiler.h>
+#include <linux/iomap.h>
 
 /*
  * The fourth extended filesystem constants/structures
@@ -1101,6 +1102,7 @@ struct ext4_inode_info {
 						 * commit.
 						 */
 #define EXT4_FC_REPLAY			0x0020	/* Fast commit replay ongoing */
+#define EXT4_FC_NEED_COMMIT		0x0040
 
 /*
  * Misc. filesystem flags
@@ -1554,6 +1556,8 @@ struct ext4_sb_info {
 	spinlock_t s_fc_lock;
 	struct buffer_head *s_fc_bh;
 	struct ext4_fc_stats s_fc_stats;
+	unsigned long s_fc_journal_start; /* This marks the start of FC Journal */
+	atomic64_t s_fc_journal_valid_tail; /* This is the volatile tail */
 #ifdef CONFIG_EXT4_DEBUG
 	int s_fc_debug_max_replay;
 #endif
@@ -2465,6 +2469,9 @@ void ext4_fc_init(struct super_block *sb, journal_t *journal);
 void ext4_fc_init_inode(struct inode *inode);
 void ext4_fc_track_range(struct inode *inode, ext4_lblk_t start,
 			 ext4_lblk_t end);
+void ext4_fc_track_iomap(struct inode *inode, struct iomap *iomap);
+void ext4_fc_track_coow(struct inode *inode, ext4_fsblk_t pblk, int len);
+void ext4_fc_untrack_coow(struct inode *inode, ext4_fsblk_t pblk, int len);
 void ext4_fc_track_unlink(struct inode *inode, struct dentry *dentry);
 void ext4_fc_track_link(struct inode *inode, struct dentry *dentry);
 void ext4_fc_track_create(struct inode *inode, struct dentry *dentry);

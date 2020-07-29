@@ -659,7 +659,7 @@ ext4_fsblk_t ext4_new_meta_blocks(handle_t *handle, struct inode *inode,
 	ar.len = count ? *count : 1;
 	ar.flags = flags;
 
-	ext4_fc_mark_ineligible(inode->i_sb, 3);
+	//ext4_fc_mark_ineligible(inode->i_sb, 3);
 	ret = ext4_mb_new_blocks(handle, &ar, errp);
 	if (count)
 		*count = ar.len;

@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-2.0
-
 /*
  * fs/ext4/fast_commit.c
  *
@@ -11,6 +10,7 @@
 #include "ext4_jbd2.h"
 #include "ext4_extents.h"
 #include "mballoc.h"
+#include <linux/dax.h>
 
 /*
  * Ext4 Fast Commits
@@ -408,6 +408,54 @@ static int __track_dentry_update(struct inode *inode, void *arg, bool update)
 	return 0;
 }
 
+static u8 *ext4_fc_reserve_space(struct super_block *sb, int len, u32 *crc);
+
+static inline void ext4_fc_pmem_flush(void *buf, uint32_t len, bool fence);
+
+/* __track_fn for directory entry updates. Called with ei->i_fc_lock. */
+static int __track_dentry_update_dax(struct inode *inode, void *arg,
+				     bool update)
+{
+	struct ext4_inode_info *ei = EXT4_I(inode);
+	struct __track_dentry_update_args *dentry_update =
+		(struct __track_dentry_update_args *)arg;
+	struct dentry *dentry = dentry_update->dentry;
+	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
+	struct ext4_fc_tl *tl;
+	struct ext4_fc_tail *tail;
+	struct ext4_fc_dentry_info *fc_dentry;
+	u8 *dst;
+	int len;
+
+	mutex_unlock(&ei->i_fc_lock);
+	len = sizeof(struct ext4_fc_tail) + sizeof(struct ext4_fc_dentry_info) +
+	      sizeof(struct ext4_fc_tl) + dentry->d_name.len;
+	dst = ext4_fc_reserve_space(inode->i_sb, len, NULL);
+	if (!dst) {
+		mutex_lock(&ei->i_fc_lock);
+		return 0;
+	}
+	tl = (struct ext4_fc_tl *)dst;
+	tl->fc_tag = cpu_to_le16(dentry_update->op | EXT4_FC_TAG_ATOMIC);
+	tl->fc_len = cpu_to_le16(len);
+
+	tail = (struct ext4_fc_tail *)(tl + 1);
+	tail->fc_tid = 0;
+	tail->fc_crc = 0;
+
+	fc_dentry = (struct ext4_fc_dentry_info *)(tail + 1);
+	fc_dentry->fc_parent_ino =
+			cpu_to_le32(dentry->d_parent->d_inode->i_ino);
+	fc_dentry->fc_ino = cpu_to_le32(inode->i_ino);
+	memcpy(fc_dentry->fc_dname, dentry->d_name.name, dentry->d_name.len);
+	tail->fc_crc = cpu_to_le32(ext4_chksum(sbi, 0, dst, len));
+
+	mutex_lock(&ei->i_fc_lock);
+	ext4_fc_pmem_flush(dst, len, 0);
+
+	return 0;
+}
+
 void ext4_fc_track_unlink(struct inode *inode, struct dentry *dentry)
 {
 	struct __track_dentry_update_args args;
@@ -416,8 +464,12 @@ void ext4_fc_track_unlink(struct inode *inode, struct dentry *dentry)
 	args.dentry = dentry;
 	args.op = EXT4_FC_TAG_UNLINK;
 
-	ret = ext4_fc_track_template(inode, __track_dentry_update,
-				       (void *)&args, 0);
+	if (test_opt(inode->i_sb, DAX))
+		ret = ext4_fc_track_template(inode, __track_dentry_update_dax,
+					     (void *)&args, 0);
+	else
+		ret = ext4_fc_track_template(inode, __track_dentry_update,
+					     (void *)&args, 0);
 	trace_ext4_fc_track_unlink(inode, dentry, ret);
 }
 
@@ -429,8 +481,12 @@ void ext4_fc_track_link(struct inode *inode, struct dentry *dentry)
 	args.dentry = dentry;
 	args.op = EXT4_FC_TAG_LINK;
 
-	ret = ext4_fc_track_template(inode, __track_dentry_update,
-				       (void *)&args, 0);
+	if (test_opt(inode->i_sb, DAX))
+		ret = ext4_fc_track_template(inode, __track_dentry_update_dax,
+					     (void *)&args, 0);
+	else
+		ret = ext4_fc_track_template(inode, __track_dentry_update,
+					     (void *)&args, 0);
 	trace_ext4_fc_track_link(inode, dentry, ret);
 }
 
@@ -442,8 +498,12 @@ void ext4_fc_track_create(struct inode *inode, struct dentry *dentry)
 	args.dentry = dentry;
 	args.op = EXT4_FC_TAG_CREAT;
 
-	ret = ext4_fc_track_template(inode, __track_dentry_update,
-				       (void *)&args, 1);
+	if (test_opt(inode->i_sb, DAX))
+		ret = ext4_fc_track_template(inode, __track_dentry_update_dax,
+					     (void *)&args, 0);
+	else
+		ret = ext4_fc_track_template(inode, __track_dentry_update,
+					     (void *)&args, 0);
 	trace_ext4_fc_track_create(inode, dentry, ret);
 }
 
@@ -458,6 +518,33 @@ static int __track_inode(struct inode *inode, void *arg, bool update)
 	return 0;
 }
 
+/* __track_fn for inode tracking */
+static int __track_inode_dax(struct inode *inode, void *arg, bool update)
+{
+	struct ext4_inode_info *ei = EXT4_I(inode);
+	int inode_len = EXT4_GOOD_OLD_INODE_SIZE;
+	u8 *dst;
+	int len;
+
+	if (update)
+		return -EEXIST;
+
+	if (EXT4_INODE_SIZE(inode->i_sb) > EXT4_GOOD_OLD_INODE_SIZE)
+		inode_len += ei->i_extra_isize;
+       len = sizeof(struct ext4_fc_tl) + inode_len + sizeof(struct ext4_fc_tail)
+	     + sizeof(u32);
+
+	dst = ext4_fc_reserve_space(inode->i_sb, len, 0);
+	if (!dst)
+		return 0;
+
+	memset(dst, 0, len);
+
+	ext4_fc_pmem_flush(dst, len, 0);
+
+	return 0;
+}
+
 void ext4_fc_track_inode(struct inode *inode)
 {
 	int ret;
@@ -465,7 +552,10 @@ void ext4_fc_track_inode(struct inode *inode)
 	if (S_ISDIR(inode->i_mode))
 		return;
 
-	ret = ext4_fc_track_template(inode, __track_inode, NULL, 1);
+	if (test_opt(inode->i_sb, DAX))
+		ret = ext4_fc_track_template(inode, __track_inode_dax, NULL, 0);
+	else
+		ret = ext4_fc_track_template(inode, __track_inode, NULL, 1);
 	trace_ext4_fc_track_inode(inode, ret);
 }
 
@@ -509,6 +599,9 @@ void ext4_fc_track_range(struct inode *inode, ext4_lblk_t start,
 
 	if (S_ISDIR(inode->i_mode))
 		return;
+	if (test_opt(inode->i_sb, DAX))
+		return;
+
 
 	args.start = start;
 	args.end = end;
@@ -517,6 +610,99 @@ void ext4_fc_track_range(struct inode *inode, ext4_lblk_t start,
 
 	trace_ext4_fc_track_range(inode, start, end, ret);
 }
+
+static int __track_iomap(struct inode *inode, void *arg, bool update)
+{
+	struct iomap *iomap = (struct iomap *)arg;
+	struct ext4_fc_tl *tl;
+	struct ext4_fc_tail *tail;
+	struct ext4_fc_del_range *del_range;
+	struct ext4_fc_add_range *add_range;
+	struct ext4_extent *ex;
+	u8 blkbits = inode->i_blkbits;
+	u8 *dst;
+	u16 tag;
+	int len;
+
+	if (inode->i_ino < EXT4_FIRST_INO(inode->i_sb)) {
+		ext4_debug("Special inode %ld being modified\n", inode->i_ino);
+		return -ECANCELED;
+	}
+
+	len = sizeof(struct ext4_fc_tail) + sizeof(struct ext4_fc_tl);
+	if (iomap->type == IOMAP_HOLE) {
+		len += sizeof(struct ext4_fc_del_range);
+		tag = EXT4_FC_TAG_DEL_RANGE;
+	} else {
+		len += sizeof(struct ext4_fc_add_range);
+		tag = EXT4_FC_TAG_ADD_RANGE;
+	}
+
+	dst = ext4_fc_reserve_space(inode->i_sb, len, NULL);
+	if (!dst)
+		return 0;
+
+	tl = (struct ext4_fc_tl *)dst;
+	tl->fc_tag = cpu_to_le16(tag | EXT4_FC_TAG_ATOMIC);
+	tl->fc_len = cpu_to_le16(len);
+
+	tail = (struct ext4_fc_tail *)(tl + 1);
+	tail->fc_tid = 0;
+	tail->fc_crc = 0;
+
+	if (tag == EXT4_FC_TAG_ADD_RANGE) {
+		add_range = (struct ext4_fc_add_range *)(tail + 1);
+		add_range->fc_ino = cpu_to_le32(inode->i_ino);
+		ex = (struct ext4_extent *)add_range->fc_ex;
+		memset(ex, 0, sizeof(struct ext4_extent));
+		ex->ee_block = cpu_to_le32(iomap->offset >> blkbits);
+		ex->ee_len = cpu_to_le32(iomap->length >> blkbits);
+		ext4_ext_store_pblock(ex, iomap->addr >> blkbits);
+		if (iomap->type == IOMAP_UNWRITTEN)
+			ext4_ext_mark_unwritten(ex);
+		else
+			ext4_ext_mark_initialized(ex);
+
+	} else {
+		del_range = (struct ext4_fc_del_range *)(tail + 1);
+		del_range->fc_ino = cpu_to_le32(inode->i_ino);
+		del_range->fc_lblk = cpu_to_le32(iomap->offset >> blkbits);
+		del_range->fc_len = cpu_to_le32(iomap->length >> blkbits);
+	}
+
+	ext4_fc_pmem_flush(dst, len, 0);
+
+	return 0;
+}
+
+void ext4_fc_track_iomap(struct inode *inode, struct iomap *iomap)
+{
+	if (S_ISDIR(inode->i_mode))
+		return;
+
+	if (!test_opt(inode->i_sb, DAX))
+		return;
+
+	ext4_fc_track_template(inode, __track_iomap, (void *)iomap, 0);
+}
+
+void ext4_fc_track_coow(struct inode *inode, ext4_fsblk_t pblk, int len)
+{
+	struct iomap iomap;
+
+	memset(&iomap, 0, sizeof(iomap));
+	iomap.addr = pblk << inode->i_blkbits;
+	iomap.length = len << inode->i_blkbits;
+	iomap.offset = 0;
+	iomap.type = IOMAP_MAPPED;
+	ext4_fc_track_iomap(inode, &iomap);
+}
+
+void ext4_fc_untrack_coow(struct inode *inode, ext4_fsblk_t pblk, int len)
+{
+	/* noop */
+}
+
 
 static void ext4_fc_submit_bh(struct super_block *sb)
 {
@@ -547,6 +733,68 @@ static void *ext4_fc_memzero(struct super_block *sb, void *dst, int len,
 	return ret;
 }
 
+
+#define CACHELINE_SIZE  (64)
+#define CACHELINE_MASK  (~(CACHELINE_SIZE - 1))
+#define CACHELINE_ALIGN(addr) (((addr)+CACHELINE_SIZE-1) & CACHELINE_MASK)
+
+#define X86_FEATURE_PCOMMIT	( 9*32+22) /* PCOMMIT instruction */
+#define X86_FEATURE_CLFLUSHOPT	( 9*32+23) /* CLFLUSHOPT instruction */
+#define X86_FEATURE_CLWB	( 9*32+24) /* CLWB instruction */
+
+static inline bool arch_has_pcommit(void)
+{
+	return static_cpu_has(X86_FEATURE_PCOMMIT);
+}
+
+static inline bool arch_has_clwb(void)
+{
+	return static_cpu_has(X86_FEATURE_CLWB);
+}
+
+
+static inline void PERSISTENT_BARRIER(void)
+{
+	asm volatile ("sfence\n" : : );
+}
+
+static inline void ext4_fc_pmem_flush(void *buf, uint32_t len, bool fence)
+{
+	uint32_t i;
+
+	len = len + ((unsigned long)(buf) & (CACHELINE_SIZE - 1));
+	for (i = 0; i < len; i += CACHELINE_SIZE)
+		clwb(buf + i);
+
+	/* Do a fence only if asked. We often don't need to do a fence
+	 * immediately after clflush because even if we get context switched
+	 * between clflush and subsequent fence, the context switch operation
+	 * provides implicit fence. */
+	if (fence)
+		PERSISTENT_BARRIER();
+}
+
+static u8 *ext4_fc_reserve_dax(struct super_block *sb, int len, u32 *crc)
+{
+	unsigned long pmem_kaddr;
+	unsigned long pmem_end_addr;
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	loff_t offset = 0;
+
+	len = CACHELINE_ALIGN(len);
+	pmem_end_addr = sbi->s_fc_journal_start +
+			EXT4_NUM_FC_BLKS * sb->s_blocksize;
+	offset = atomic64_fetch_add(len, &(sbi->s_fc_journal_valid_tail));
+	pmem_kaddr = sbi->s_fc_journal_start + offset;
+
+	if (pmem_kaddr + len >= pmem_end_addr) {
+		EXT4_SB(sb)->s_mount_state |= EXT4_FC_NEED_COMMIT;
+		return (u8 *)NULL;
+	}
+
+	return (u8 *)pmem_kaddr;
+}
+
 /*
  * Allocate len bytes on a fast commit buffer.
  *
@@ -566,6 +814,9 @@ static u8 *ext4_fc_reserve_space(struct super_block *sb, int len, u32 *crc)
 	int bsize = sbi->s_journal->j_blocksize;
 	int ret, off = sbi->s_fc_bytes % bsize;
 	int pad_len;
+
+	if (test_opt(sb, DAX))
+		return ext4_fc_reserve_dax(sb, len, crc);
 
 	if (bsize - off - 1 > len + sizeof(struct ext4_fc_tl)) {
 		/*
@@ -606,7 +857,10 @@ static void *ext4_fc_memcpy(struct super_block *sb, void *dst, const void *src,
 {
 	if (crc)
 		*crc = ext4_chksum(EXT4_SB(sb), *crc, src, len);
-	return memcpy(dst, src, len);
+	if (!test_opt(sb, DAX))
+		return memcpy(dst, src, len);
+	__copy_from_user_inatomic_nocache(dst, src, len);
+	return dst;
 }
 
 /*
@@ -1064,6 +1318,9 @@ int ext4_fc_commit(journal_t *journal, tid_t commit_tid)
 		goto out;
 	}
 
+	if (test_opt(sb, DAX))
+		return 0;
+
 restart_fc:
 	ret = jbd2_fc_start(journal, commit_tid);
 	if (ret == -EALREADY) {
@@ -1171,6 +1428,8 @@ static void ext4_fc_cleanup(journal_t *journal, int full)
 
 	sbi->s_mount_state &= ~EXT4_FC_COMMITTING;
 	sbi->s_mount_state &= ~EXT4_FC_INELIGIBLE;
+	atomic64_set(&sbi->s_fc_journal_valid_tail, 0);
+	sbi->s_mount_state &= ~EXT4_FC_NEED_COMMIT;
 
 	if (full)
 		sbi->s_fc_bytes = 0;
@@ -2041,6 +2300,16 @@ static int ext4_fc_replay(journal_t *journal, struct buffer_head *bh,
 
 void ext4_fc_init(struct super_block *sb, journal_t *journal)
 {
+	int ret;
+	size_t size;
+	void *kaddr;
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	pfn_t __pfn_t;
+	ext4_fsblk_t pblock;
+	pgoff_t pgoff;
+
+	size = EXT4_NUM_FC_BLKS * PAGE_SIZE;
+
 	/*
 	 * We set replay callback even if fast commit disabled because we may
 	 * could still have fast commit blocks that need to be replayed even if
@@ -2054,6 +2323,25 @@ void ext4_fc_init(struct super_block *sb, journal_t *journal)
 		pr_warn("Error while enabling fast commits, turning off.");
 		ext4_clear_feature_fast_commit(sb);
 	}
+
+	if (!test_opt(sb, DAX))
+		return;
+
+	jbd2_journal_bmap(journal, journal->j_first_fc, &pblock);
+
+	ret = bdev_dax_pgoff(sb->s_bdev, pblock << 3, size, &pgoff);
+	WARN_ON(ret != 0);
+
+	ret = dax_direct_access(sbi->s_daxdev, pgoff, PHYS_PFN(size),
+				&kaddr, &__pfn_t);
+	WARN_ON(ret < 0);
+
+	sbi->s_fc_journal_start = (unsigned long)kaddr;
+	atomic64_set(&(sbi->s_fc_journal_valid_tail), 0);
+
+	printk(KERN_INFO "%s: Journal start = 0x%lx. Tail pointer = %lld\n",
+	       __func__, sbi->s_fc_journal_start,
+	       sbi->s_fc_journal_valid_tail.counter);
 }
 
 int __init ext4_fc_init_dentry_cache(void)

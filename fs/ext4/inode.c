@@ -3620,6 +3620,8 @@ static int ext4_iomap_end(struct inode *inode, loff_t offset, loff_t length,
 	if (!truncate && inode->i_nlink &&
 	    !list_empty(&EXT4_I(inode)->i_orphan))
 		ext4_orphan_del(handle, inode);
+	if ((flags & IOMAP_WRITE) && test_opt(inode->i_sb, DAX))
+		ext4_fc_track_iomap(inode, iomap);
 	ext4_journal_stop(handle);
 	if (truncate) {
 		ext4_truncate_failed_write(inode);

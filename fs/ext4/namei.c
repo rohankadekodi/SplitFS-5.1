@@ -3031,8 +3031,6 @@ int __ext4_unlink(struct inode *dir, const struct qstr *d_name,
 		ext4_handle_sync(handle);
 
 	if (inode->i_nlink == 0) {
-		ext4_warning_inode(inode, "Deleting file '%.*s' with no links",
-				   dentry->d_name.len, dentry->d_name.name);
 		set_nlink(inode, 1);
 	}
 
@@ -3052,7 +3050,8 @@ int __ext4_unlink(struct inode *dir, const struct qstr *d_name,
 		ext4_orphan_add(handle, inode);
 	inode->i_ctime = current_time(inode);
 	ext4_mark_inode_dirty(handle, inode);
-
+end_unlink:
+	ext4_journal_stop(handle);
 	return retval;
 }
 
@@ -3078,10 +3077,6 @@ static int ext4_unlink(struct inode *dir, struct dentry *dentry)
 	retval = __ext4_unlink(dir, &dentry->d_name, d_inode(dentry));
 	if (!retval)
 		ext4_fc_track_unlink(d_inode(dentry), dentry);
-end_unlink:
-	brelse(bh);
-	if (handle)
-		ext4_journal_stop(handle);
 	trace_ext4_unlink_exit(dentry, retval);
 	return retval;
 }

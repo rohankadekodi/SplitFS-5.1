@@ -517,8 +517,7 @@ void ext4_fc_track_range(struct inode *inode, ext4_lblk_t start,
 	args.start = start;
 	args.end = end;
 
-	ret = ext4_fc_track_template(inode,
-					__track_range, &args, 1);
+	ret = ext4_fc_track_template(inode, __track_range, &args, 1);
 
 	trace_ext4_fc_track_range(inode, start, end, ret);
 }
@@ -875,7 +874,9 @@ static int ext4_fc_submit_inode_data_all(journal_t *journal)
 			finish_wait(&ei->i_fc_wait, &wait);
 		}
 		spin_unlock(&sbi->s_fc_lock);
-		ret = jbd2_submit_inode_data(journal, ei->jinode);
+		ret = jbd2_submit_inode_data(journal, ei->jinode,
+					     (ei->i_fc_lblk_start) << sb->s_blocksize_bits,
+					     (ei->i_fc_lblk_start + ei->i_fc_lblk_len) << sb->s_blocksize_bits);
 		if (ret)
 			return ret;
 		spin_lock(&sbi->s_fc_lock);
@@ -1878,7 +1879,7 @@ static int ext4_fc_replay_scan(journal_t *journal,
 			if (ret < 0)
 				break;
 			ret = JBD2_FC_REPLAY_CONTINUE;
-			fallthrough;
+			/* fallthrough */
 		case EXT4_FC_TAG_DEL_RANGE:
 		case EXT4_FC_TAG_LINK:
 		case EXT4_FC_TAG_UNLINK:

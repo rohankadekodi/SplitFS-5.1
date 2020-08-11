@@ -187,14 +187,14 @@ static int journal_wait_on_commit_record(journal_t *journal,
  * use writepages() because with dealyed allocation we may be doing
  * block allocation in writepages().
  */
-static int journal_submit_inode_data_buffers(struct address_space *mapping)
+static int journal_submit_inode_data_buffers(struct address_space *mapping, loff_t dirty_start, loff_t dirty_end)
 {
 	int ret;
 	struct writeback_control wbc = {
 		.sync_mode =  WB_SYNC_ALL,
 		.nr_to_write = mapping->nrpages * 2,
-		.range_start = 0,
-		.range_end = i_size_read(mapping->host),
+		.range_start = dirty_start,
+		.range_end = dirty_end,
 	};
 
 	ret = generic_writepages(mapping, &wbc);
@@ -202,24 +202,17 @@ static int journal_submit_inode_data_buffers(struct address_space *mapping)
 }
 
 /* Send all the data buffers related to an inode */
-int jbd2_submit_inode_data(journal_t *journal, struct jbd2_inode *jinode)
+int jbd2_submit_inode_data(journal_t *journal, struct jbd2_inode *jinode,
+			   loff_t dirty_start, loff_t dirty_end)
 {
 	struct address_space *mapping;
-	loff_t dirty_start;
-	loff_t dirty_end;
 	int ret;
 
 	if (!jinode)
 		return 0;
 
-	dirty_start = jinode->i_dirty_start;
-	dirty_end = jinode->i_dirty_end;
-
 	if (!(jinode->i_flags & JI_WRITE_DATA))
 		return 0;
-
-	dirty_start = jinode->i_dirty_start;
-	dirty_end = jinode->i_dirty_end;
 
 	mapping = jinode->i_vfs_inode->i_mapping;
 
@@ -235,9 +228,7 @@ int jbd2_wait_inode_data(journal_t *journal, struct jbd2_inode *jinode)
 {
 	if (!jinode || !(jinode->i_flags & JI_WAIT_DATA))
 		return 0;
-	return filemap_fdatawait_range_keep_errors(
-		jinode->i_vfs_inode->i_mapping, jinode->i_dirty_start,
-		jinode->i_dirty_end);
+	return filemap_fdatawait_keep_errors(jinode->i_vfs_inode->i_mapping);
 }
 EXPORT_SYMBOL(jbd2_wait_inode_data);
 
@@ -270,7 +261,7 @@ static int journal_submit_data_buffers(journal_t *journal,
 		 * only allocated blocks here.
 		 */
 		trace_jbd2_submit_inode_data(jinode->i_vfs_inode);
-		err = journal_submit_inode_data_buffers(mapping);
+		err = journal_submit_inode_data_buffers(mapping, 0, i_size_read(jinode->i_vfs_inode));
 		if (!ret)
 			ret = err;
 		spin_lock(&journal->j_list_lock);

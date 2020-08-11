@@ -1,0 +1,32 @@
+config DUOFS
+	bool "Duo FS"
+	depends on HAS_IOMEM
+	select CRC16
+	default y
+	help
+	   Help for DuoFS.
+
+config DUOFS_XIP
+	bool "Execute-in-place in DuoFS"
+	depends on DUOFS && BLOCK
+	help
+	   Say Y here to enable XIP feature of DuoFS.
+
+config DUOFS_WRITE_PROTECT
+	bool "DuoFS write protection"
+	depends on DUOFS && MMU && HAVE_SET_MEMORY_RO
+	default y
+	help
+	   Say Y here to enable the write protect feature of DuoFS.
+
+config DUOFS_TEST
+	bool
+	depends on DUOFS
+
+config DUOFS_TEST_MODULE
+	tristate "DuoFS Test"
+	depends on DUOFS && DUOFS_WRITE_PROTECT && m
+	select DUOFS_TEST
+	help
+	  Say Y here to build a simple module to test the protection of
+	  DuoFS. The module will be called duofs_test.

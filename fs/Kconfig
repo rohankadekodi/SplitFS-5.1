@@ -66,6 +66,7 @@ config FS_DAX_PMD
 	depends on ZONE_DEVICE
 	depends on TRANSPARENT_HUGEPAGE
 
+source "fs/duofs/Kconfig"
 source "fs/pmfs/Kconfig"
 source "fs/nova/Kconfig"
 # Selected by DAX drivers that do not expect filesystem DAX to support

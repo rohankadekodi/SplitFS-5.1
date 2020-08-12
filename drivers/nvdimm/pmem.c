@@ -255,8 +255,10 @@ __weak long __pmem_direct_access(struct pmem_device *pmem, pgoff_t pgoff,
 	resource_size_t offset = PFN_PHYS(pgoff) + pmem->data_offset;
 
 	if (unlikely(is_bad_pmem(&pmem->bb, PFN_PHYS(pgoff) / 512,
-					PFN_PHYS(nr_pages))))
+				 PFN_PHYS(nr_pages)))) {
+		printk(KERN_INFO "%s: returning EIO\n", __func__);
 		return -EIO;
+	}
 
 	if (kaddr)
 		*kaddr = pmem->virt_addr + offset;
@@ -267,8 +269,12 @@ __weak long __pmem_direct_access(struct pmem_device *pmem, pgoff_t pgoff,
 	 * If badblocks are present, limit known good range to the
 	 * requested range.
 	 */
-	if (unlikely(pmem->bb.count))
+	if (unlikely(pmem->bb.count)) {
+		printk(KERN_INFO "%s: returning nr_pages\n", __func__);
 		return nr_pages;
+	}
+
+	printk(KERN_INFO "%s: pmem->size = %lu\n", __func__, pmem->size);
 	return PHYS_PFN(pmem->size - pmem->pfn_pad - offset);
 }
 
@@ -281,9 +287,12 @@ static const struct block_device_operations pmem_fops = {
 static long pmem_dax_direct_access(struct dax_device *dax_dev,
 		pgoff_t pgoff, long nr_pages, void **kaddr, pfn_t *pfn)
 {
+	long ret = 0;
 	struct pmem_device *pmem = dax_get_private(dax_dev);
 
-	return __pmem_direct_access(pmem, pgoff, nr_pages, kaddr, pfn);
+	printk(KERN_INFO "%s: start\n", __func__);
+	ret = __pmem_direct_access(pmem, pgoff, nr_pages, kaddr, pfn);
+	printk(KERN_INFO "%s: returning = %ld\n", __func__, ret);
 }
 
 static size_t pmem_copy_from_iter(struct dax_device *dax_dev, pgoff_t pgoff,

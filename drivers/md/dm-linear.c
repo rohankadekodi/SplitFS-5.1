@@ -175,13 +175,10 @@ static long linear_dax_direct_access(struct dm_target *ti, pgoff_t pgoff,
 
 	dev_sector = linear_map_sector(ti, sector);
 	ret = bdev_dax_pgoff(bdev, dev_sector, nr_pages * PAGE_SIZE, &pgoff);
-	printk(KERN_INFO "%s: bdev_dax_pgoff returns %ld\n", __func__, ret);
 	if (ret)
 		return ret;
 
-	ret = dax_direct_access(dax_dev, pgoff, nr_pages, kaddr, pfn);
-	printk(KERN_INFO "%s: dax_direct_access returns %ld\n", __func__, ret);
-	return ret;
+	return dax_direct_access(dax_dev, pgoff, nr_pages, kaddr, pfn);
 }
 
 static size_t linear_dax_copy_from_iter(struct dm_target *ti, pgoff_t pgoff,

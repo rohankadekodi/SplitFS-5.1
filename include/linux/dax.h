@@ -19,6 +19,12 @@ struct dax_operations {
 	 */
 	long (*direct_access)(struct dax_device *, pgoff_t, long,
 			void **, pfn_t *);
+	/*
+	 * Validate whether this device is usable as an fsdax backing
+	 * device.
+	 */
+	bool (*dax_supported)(struct dax_device *, struct block_device *, int,
+			sector_t, sector_t);
 	/* copy_from_iter: required operation for fs-dax direct-i/o */
 	size_t (*copy_from_iter)(struct dax_device *, pgoff_t, void *, size_t,
 			struct iov_iter *);
@@ -80,6 +86,17 @@ static inline struct dax_device *fs_dax_get_by_host(const char *host)
 	return dax_get_by_host(host);
 }
 
+bool __generic_fsdax_supported(struct dax_device *dax_dev,
+		struct block_device *bdev, int blocksize, sector_t start,
+		sector_t sectors);
+static inline bool generic_fsdax_supported(struct dax_device *dax_dev,
+		struct block_device *bdev, int blocksize, sector_t start,
+		sector_t sectors)
+{
+	return __generic_fsdax_supported(dax_dev, bdev, blocksize, start,
+			sectors);
+}
+
 static inline void fs_put_dax(struct dax_device *dax_dev)
 {
 	put_dax(dax_dev);
@@ -102,6 +119,13 @@ static inline bool bdev_dax_supported(struct block_device *bdev,
 static inline struct dax_device *fs_dax_get_by_host(const char *host)
 {
 	return NULL;
+}
+
+static inline bool generic_fsdax_supported(struct dax_device *dax_dev,
+		struct block_device *bdev, int blocksize, sector_t start,
+		sector_t sectors)
+{
+	return false;
 }
 
 static inline void fs_put_dax(struct dax_device *dax_dev)
@@ -142,6 +166,8 @@ bool dax_alive(struct dax_device *dax_dev);
 void *dax_get_private(struct dax_device *dax_dev);
 long dax_direct_access(struct dax_device *dax_dev, pgoff_t pgoff, long nr_pages,
 		void **kaddr, pfn_t *pfn);
+bool dax_supported(struct dax_device *dax_dev, struct block_device *bdev,
+		int blocksize, sector_t start, sector_t len);
 size_t dax_copy_from_iter(struct dax_device *dax_dev, pgoff_t pgoff, void *addr,
 		size_t bytes, struct iov_iter *i);
 size_t dax_copy_to_iter(struct dax_device *dax_dev, pgoff_t pgoff, void *addr,

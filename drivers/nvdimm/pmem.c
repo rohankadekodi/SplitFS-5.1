@@ -255,8 +255,9 @@ __weak long __pmem_direct_access(struct pmem_device *pmem, pgoff_t pgoff,
 	resource_size_t offset = PFN_PHYS(pgoff) + pmem->data_offset;
 
 	if (unlikely(is_bad_pmem(&pmem->bb, PFN_PHYS(pgoff) / 512,
-					PFN_PHYS(nr_pages))))
+				 PFN_PHYS(nr_pages)))) {
 		return -EIO;
+	}
 
 	if (kaddr)
 		*kaddr = pmem->virt_addr + offset;
@@ -267,8 +268,10 @@ __weak long __pmem_direct_access(struct pmem_device *pmem, pgoff_t pgoff,
 	 * If badblocks are present, limit known good range to the
 	 * requested range.
 	 */
-	if (unlikely(pmem->bb.count))
+	if (unlikely(pmem->bb.count)) {
 		return nr_pages;
+	}
+
 	return PHYS_PFN(pmem->size - pmem->pfn_pad - offset);
 }
 
@@ -300,6 +303,7 @@ static size_t pmem_copy_to_iter(struct dax_device *dax_dev, pgoff_t pgoff,
 
 static const struct dax_operations pmem_dax_ops = {
 	.direct_access = pmem_dax_direct_access,
+	.dax_supported = generic_fsdax_supported,
 	.copy_from_iter = pmem_copy_from_iter,
 	.copy_to_iter = pmem_copy_to_iter,
 };

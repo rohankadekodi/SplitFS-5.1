@@ -1,18 +1,18 @@
-#ifndef __DUOFS_INODE_H
-#define __DUOFS_INODE_H
+#ifndef __PMFS_INODE_H
+#define __PMFS_INODE_H
 
 /*
- * Structure of an inode in duofs. Things to keep in mind when modifying it.
+ * Structure of an inode in PMFS. Things to keep in mind when modifying it.
  * 1) Keep the inode size to within 96 bytes if possible. This is because
  *    a 64 byte log-entry can store 48 bytes of data and we would like
  *    to log an inode using only 2 log-entries
  * 2) root must be immediately after the qw containing height because we update
- *    root and height atomically using cmpxchg16b in duofs_decrease_btree_height 
+ *    root and height atomically using cmpxchg16b in pmfs_decrease_btree_height 
  * 3) i_size, i_ctime, and i_mtime must be in that order and i_size must be at
  *    16 byte aligned offset from the start of the inode. We use cmpxchg16b to
  *    update these three fields atomically.
  */
-struct duofs_inode {
+struct pmfs_inode {
 	/* first 48 bytes */
 	__le16	i_rsvd;         /* reserved. used to be checksum */
 	u8	    height;         /* height of data b-tree; max 3 for now */
@@ -50,9 +50,9 @@ struct inode_table {
 };
 
 /*
- * duofs-specific inode state kept in DRAM
+ * PMFS-specific inode state kept in DRAM
  */
-struct duofs_inode_info_header {
+struct pmfs_inode_info_header {
 	struct rb_root rb_tree;         /* RB tree for directory */
 	struct rb_root vma_tree;	/* Write vmas */
 	int num_vmas;
@@ -61,48 +61,48 @@ struct duofs_inode_info_header {
 	unsigned long i_size;
 	unsigned long i_blocks;
 	unsigned long ino;
-	struct duofs_direntry *last_dentry;
+	struct pmfs_direntry *last_dentry;
 	u8 i_blk_type;
 };
 
 /* This is a per-inode structure and follows immediately after the 
- * struct duofs_inode. It is used to implement the truncate linked list and is 
- * by duofs_truncate_add(), duofs_truncate_del(), and duofs_recover_truncate_list()
+ * struct pmfs_inode. It is used to implement the truncate linked list and is 
+ * by pmfs_truncate_add(), pmfs_truncate_del(), and pmfs_recover_truncate_list()
  * functions to manage the truncate list */
-struct duofs_inode_truncate_item {
+struct pmfs_inode_truncate_item {
 	__le64	i_truncatesize;     /* Size of truncated inode */
 	__le64  i_next_truncate;    /* inode num of the next truncated inode */
 };
 
-struct duofs_inode_info {
+struct pmfs_inode_info {
 	__u32   i_dir_start_lookup;
 	struct list_head i_truncated;
-	struct duofs_inode_info_header header;
+	struct pmfs_inode_info_header header;
 	struct inode	vfs_inode;
 };
 
-static inline unsigned int duofs_inode_blk_shift (struct duofs_inode *pi)
+static inline unsigned int pmfs_inode_blk_shift (struct pmfs_inode *pi)
 {
 	return blk_type_to_shift[pi->i_blk_type];
 }
 
-static inline uint32_t duofs_inode_blk_size (struct duofs_inode *pi)
+static inline uint32_t pmfs_inode_blk_size (struct pmfs_inode *pi)
 {
 	return blk_type_to_size[pi->i_blk_type];
 }
 
 static inline u64
-duofs_get_addr_off(struct duofs_sb_info *sbi, void *addr)
+pmfs_get_addr_off(struct pmfs_sb_info *sbi, void *addr)
 {
-	DUOFS_ASSERT(((addr >= sbi->virt_addr) &&
+	PMFS_ASSERT(((addr >= sbi->virt_addr) &&
 		    (addr < (sbi->virt_addr + sbi->initsize))) ||
 		    ((addr >= sbi->virt_addr_2) &&
 		     (addr < (sbi->virt_addr_2 + sbi->initsize_2))));
 	return (u64)(addr - sbi->virt_addr);
 }
 
-static inline unsigned long __duofs_find_data_blocks(struct super_block *sb,
-						   struct duofs_inode *pi,
+static inline unsigned long __pmfs_find_data_blocks(struct super_block *sb,
+						   struct pmfs_inode *pi,
 						   unsigned long blocknr,
 						   u64 *bp,
 						   unsigned long max_blocks)
@@ -118,7 +118,7 @@ static inline unsigned long __duofs_find_data_blocks(struct super_block *sb,
 	local_bp = le64_to_cpu(pi->root);
 
 	while (height > 0) {
-		level_ptr = duofs_get_block(sb, local_bp);
+		level_ptr = pmfs_get_block(sb, local_bp);
 		bit_shift = (height - 1) * META_BLK_SHIFT;
 		idx = blocknr >> bit_shift;
 
@@ -157,10 +157,10 @@ static inline unsigned long __duofs_find_data_blocks(struct super_block *sb,
 }
 
 
-static inline struct inode_table *duofs_get_inode_table_log(struct super_block *sb,
+static inline struct inode_table *pmfs_get_inode_table_log(struct super_block *sb,
 	int cpu)
 {
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	int table_start;
 
 	if (cpu >= sbi->cpus)
@@ -168,23 +168,21 @@ static inline struct inode_table *duofs_get_inode_table_log(struct super_block *
 
 	table_start = INODE_TABLE0_START;
 
-	return (struct inode_table *)((char *)
-				      duofs_get_block(sb,
-						      DUOFS_DEF_BLOCK_SIZE_4K *
-						      table_start) +
+	return (struct inode_table *)((char *)pmfs_get_block(sb,
+							     PMFS_DEF_BLOCK_SIZE_4K * table_start) +
 				      cpu * CACHELINE_SIZE);
 }
 
 /* Get the address in PMEM of an inode by inode number. Allocate additional
  * block to store additional inodes if necessary.
  */
-static inline struct duofs_inode *duofs_get_inode(struct super_block *sb, u64 ino)
+static inline struct pmfs_inode *pmfs_get_inode(struct super_block *sb, u64 ino)
 {
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	struct inode_table *inode_table;
 	unsigned int data_bits;
 	unsigned int num_inodes_bits;
-	struct duofs_inode *duofs_inode_table = duofs_get_inode_table(sb);
+	struct pmfs_inode *pmfs_inode_table = pmfs_get_inode_table(sb);
 	u64 curr;
 	unsigned int superpage_count;
 	u64 internal_ino;
@@ -195,129 +193,129 @@ static inline struct duofs_inode *duofs_get_inode(struct super_block *sb, u64 in
 	unsigned long curr_addr;
 	int allocated;
 
-	if (ino > DUOFS_BLOCKNODE_IN0 && ino < DUOFS_NORMAL_INODE_START)
+	if (ino > PMFS_BLOCKNODE_IN0 && ino < PMFS_NORMAL_INODE_START)
 		return NULL;
 
-	data_bits = blk_type_to_shift[duofs_inode_table->i_blk_type];
-	num_inodes_bits = data_bits - DUOFS_INODE_BITS;
+	data_bits = blk_type_to_shift[pmfs_inode_table->i_blk_type];
+	num_inodes_bits = data_bits - PMFS_INODE_BITS;
 
 	cpuid = ino % sbi->cpus;
 	internal_ino = ino / sbi->cpus;
 
-	inode_table = duofs_get_inode_table_log(sb, cpuid);
+	inode_table = pmfs_get_inode_table_log(sb, cpuid);
 	superpage_count = internal_ino >> num_inodes_bits;
 	index = internal_ino & ((1 << num_inodes_bits) - 1);
 
 	curr = inode_table->log_head;
 
-	duofs_dbg_verbose("%s: cpuid = %d. ino = %llu. internal_ino = %llu. inode_table = 0x%p. superpage_count = %u. index = %u. curr = %llu log_head addr = 0x%p\n", __func__, cpuid, ino, internal_ino, inode_table, superpage_count, index, curr, &(inode_table->log_head));
+	//pmfs_dbg_verbose("%s: cpuid = %d. ino = %llu. internal_ino = %llu. inode_table = 0x%p. superpage_count = %u. index = %u. curr = %llu log_head addr = 0x%p\n", __func__, cpuid, ino, internal_ino, inode_table, superpage_count, index, curr, &(inode_table->log_head));
 
 	if (curr == 0) {
-		duofs_dbg("%s: could not find inode for ino = %llu\n",
+		pmfs_dbg_verbose("%s: could not find inode for ino = %llu\n",
 				 __func__, ino);
 		return NULL;
 	}
 
 	for (i = 0; i < superpage_count; i++) {
 		if (curr == 0) {
-			duofs_dbg("%s: could not get the inode log for super page = %d\n",
+			pmfs_dbg_verbose("%s: could not get the inode log for super page = %d\n",
 					 __func__, i);
 			return NULL;
 		}
 
-		curr_addr = (unsigned long) duofs_get_block(sb, curr);
+		curr_addr = (unsigned long) pmfs_get_block(sb, curr);
 		/* Next page pointer in the last 8 bytes of the superpage */
-		curr_addr += blk_type_to_size[duofs_inode_table->i_blk_type] - 8;
+		curr_addr += blk_type_to_size[pmfs_inode_table->i_blk_type] - 8;
 		curr = *(u64 *)(curr_addr);
 
 		if (curr == 0) {
-			allocated = duofs_new_blocks(sb, &blocknr, 1,
-						    DUOFS_BLOCK_TYPE_2M,
+			allocated = pmfs_new_blocks(sb, &blocknr, 1,
+						    PMFS_BLOCK_TYPE_2M,
 						    1, cpuid);
 
 			if (allocated != 1) {
-				duofs_dbg("%s: could not extend inode table for cpu = %d\n",
+				pmfs_dbg_verbose("%s: could not extend inode table for cpu = %d\n",
 						 __func__, cpuid);
 				return NULL;
 			}
 
-			duofs_dbg("%s: extended inode table for cpu = %d\n",
+			pmfs_dbg_verbose("%s: extended inode table for cpu = %d\n",
 					 __func__, cpuid);
 
 
-			curr = duofs_get_block_off(sb, blocknr,
-						  DUOFS_BLOCK_TYPE_2M);
-			duofs_memunlock_range(sb, (void *)curr_addr,
+			curr = pmfs_get_block_off(sb, blocknr,
+						  PMFS_BLOCK_TYPE_2M);
+			pmfs_memunlock_range(sb, (void *)curr_addr,
 					     CACHELINE_SIZE);
 			*(u64 *)(curr_addr) = curr;
-			duofs_memlock_range(sb, (void *)curr_addr,
+			pmfs_memlock_range(sb, (void *)curr_addr,
 					   CACHELINE_SIZE);
-			duofs_flush_buffer((void *)curr_addr,
-					  DUOFS_INODE_SIZE, 1);
+			pmfs_flush_buffer((void *)curr_addr,
+					  PMFS_INODE_SIZE, 1);
 		}
 	}
 
-	//duofs_dbg_verbose("%s: Found the duofs inode for ino = %llu\n",
+	//pmfs_dbg_verbose("%s: Found the pmfs inode for ino = %llu\n",
 	//		 __func__, ino);
 
-	curr = (u64)duofs_get_block(sb, curr);
-	return (struct duofs_inode *)(curr + index * DUOFS_INODE_SIZE);
+	curr = (u64)pmfs_get_block(sb, curr);
+	return (struct pmfs_inode *)(curr + index * PMFS_INODE_SIZE);
 }
 
 /* If this is part of a read-modify-write of the inode metadata,
- * duofs_memunlock_inode() before calling! */
+ * pmfs_memunlock_inode() before calling! */
 /*
-static inline struct duofs_inode *duofs_get_inode(struct super_block *sb,
+static inline struct pmfs_inode *pmfs_get_inode(struct super_block *sb,
 						  u64	ino)
 {
-	struct duofs_super_block *ps = duofs_get_super(sb);
-	struct duofs_inode *inode_table = duofs_get_inode_table(sb);
+	struct pmfs_super_block *ps = pmfs_get_super(sb);
+	struct pmfs_inode *inode_table = pmfs_get_inode_table(sb);
 	u64 bp, block, ino_offset;
 
 	if (ino == 0)
 		return NULL;
 
-	block = ino >> duofs_inode_blk_shift(inode_table);
-	bp = __duofs_find_data_block(sb, inode_table, block);
+	block = ino >> pmfs_inode_blk_shift(inode_table);
+	bp = __pmfs_find_data_block(sb, inode_table, block);
 
 	if (bp == 0)
 		return NULL;
-	ino_offset = (ino & (duofs_inode_blk_size(inode_table) - 1));
-	return (struct duofs_inode *)((void *)ps + bp + ino_offset);
+	ino_offset = (ino & (pmfs_inode_blk_size(inode_table) - 1));
+	return (struct pmfs_inode *)((void *)ps + bp + ino_offset);
 }
 */
 
 
-static inline struct duofs_inode_info *DUOFS_I(struct inode *inode)
+static inline struct pmfs_inode_info *PMFS_I(struct inode *inode)
 {
-	return container_of(inode, struct duofs_inode_info, vfs_inode);
+	return container_of(inode, struct pmfs_inode_info, vfs_inode);
 }
 
-static inline struct duofs_inode_truncate_item * duofs_get_truncate_item (struct 
+static inline struct pmfs_inode_truncate_item * pmfs_get_truncate_item (struct 
 		super_block *sb, u64 ino)
 {
-	struct duofs_inode *pi = duofs_get_inode(sb, ino);
-	return (struct duofs_inode_truncate_item *)(pi + 1);
+	struct pmfs_inode *pi = pmfs_get_inode(sb, ino);
+	return (struct pmfs_inode_truncate_item *)(pi + 1);
 }
 
-static inline struct duofs_inode_truncate_item * duofs_get_truncate_list_head (
+static inline struct pmfs_inode_truncate_item * pmfs_get_truncate_list_head (
 		struct super_block *sb)
 {
-	struct duofs_inode *pi = duofs_get_inode_table(sb);
-	return (struct duofs_inode_truncate_item *)(pi + 1);
+	struct pmfs_inode *pi = pmfs_get_inode_table(sb);
+	return (struct pmfs_inode_truncate_item *)(pi + 1);
 }
 
 static inline void check_eof_blocks(struct super_block *sb, 
-		struct duofs_inode *pi, loff_t size)
+		struct pmfs_inode *pi, loff_t size)
 {
-	if ((pi->i_flags & cpu_to_le32(DUOFS_EOFBLOCKS_FL)) &&
+	if ((pi->i_flags & cpu_to_le32(PMFS_EOFBLOCKS_FL)) &&
 		(size + sb->s_blocksize) > (le64_to_cpu(pi->i_blocks)
 			<< sb->s_blocksize_bits))
-		pi->i_flags &= cpu_to_le32(~DUOFS_EOFBLOCKS_FL);
+		pi->i_flags &= cpu_to_le32(~PMFS_EOFBLOCKS_FL);
 }
 
-static inline void duofs_update_time_and_size(struct inode *inode,
-	struct duofs_inode *pi)
+static inline void pmfs_update_time_and_size(struct inode *inode,
+	struct pmfs_inode *pi)
 {
 	__le32 words[2];
 	__le64 new_pi_size = cpu_to_le64(i_size_read(inode));
@@ -332,59 +330,59 @@ static inline void duofs_update_time_and_size(struct inode *inode,
 		*(u64 *)&pi->i_ctime, new_pi_size, *(u64 *)words);
 }
 
-int duofs_init_inode_inuse_list(struct super_block *sb);
-extern unsigned int duofs_free_inode_subtree(struct super_block *sb,
+int pmfs_init_inode_inuse_list(struct super_block *sb);
+extern unsigned int pmfs_free_inode_subtree(struct super_block *sb,
 		__le64 root, u32 height, u32 btype, unsigned long last_blocknr);
-extern int __duofs_alloc_blocks(duofs_transaction_t *trans,
-			       struct super_block *sb, struct duofs_inode *pi,
+extern int __pmfs_alloc_blocks(pmfs_transaction_t *trans,
+			       struct super_block *sb, struct pmfs_inode *pi,
 			       unsigned long file_blocknr,
 			       unsigned int num, bool zero, int cpu, int write_path,
 			       __le64 *free_blk_list, unsigned long *num_free_blks,
 			       void **log_entries, __le64 *log_entry_nums, int *log_entry_idx);
-extern int __duofs_alloc_blocks_wrapper(duofs_transaction_t *trans,
+extern int __pmfs_alloc_blocks_wrapper(pmfs_transaction_t *trans,
 				       struct super_block *sb,
-				       struct duofs_inode *pi,
+				       struct pmfs_inode *pi,
 				       unsigned long file_blocknr,
 				       unsigned int num, bool zero,
 				       int cpu, int write_path);
 int truncate_strong_guarantees(struct super_block *sb, __le64 *node,
 			       unsigned long num_blocks, u32 btype);
-extern int duofs_init_inode_table(struct super_block *sb);
-extern int duofs_alloc_blocks(duofs_transaction_t *trans, struct inode *inode,
+extern int pmfs_init_inode_table(struct super_block *sb);
+extern int pmfs_alloc_blocks(pmfs_transaction_t *trans, struct inode *inode,
 			     unsigned long file_blocknr, unsigned int num,
 			     bool zero, int cpu, int write_path, __le64 *free_blk_list,
 			     unsigned long *num_free_blks, void **log_entries,
 			     __le64 *log_entry_nums, int *log_entry_idx);
-extern int duofs_alloc_blocks_weak(duofs_transaction_t *trans, struct inode *inode,
+extern int pmfs_alloc_blocks_weak(pmfs_transaction_t *trans, struct inode *inode,
 				  unsigned long file_blocknr, unsigned int num,
 				  bool zero, int cpu, int write_path);
-extern unsigned long duofs_find_data_blocks(struct inode *inode,
+extern unsigned long pmfs_find_data_blocks(struct inode *inode,
 				 unsigned long file_blocknr,
 				 u64 *bp,
 				 unsigned long max_blocks);
-int duofs_set_blocksize_hint(struct super_block *sb, struct duofs_inode *pi,
+int pmfs_set_blocksize_hint(struct super_block *sb, struct pmfs_inode *pi,
 		loff_t new_size);
-void duofs_setsize(struct inode *inode, loff_t newsize);
+void pmfs_setsize(struct inode *inode, loff_t newsize);
 
-extern struct inode *duofs_iget(struct super_block *sb, unsigned long ino);
-extern void duofs_put_inode(struct inode *inode);
-extern void duofs_evict_inode(struct inode *inode);
-extern struct inode *duofs_new_inode(duofs_transaction_t *trans,
+extern struct inode *pmfs_iget(struct super_block *sb, unsigned long ino);
+extern void pmfs_put_inode(struct inode *inode);
+extern void pmfs_evict_inode(struct inode *inode);
+extern struct inode *pmfs_new_inode(pmfs_transaction_t *trans,
 	struct inode *dir, umode_t mode, const struct qstr *qstr);
-extern void duofs_update_isize(struct inode *inode, struct duofs_inode *pi);
-extern void duofs_update_nlink(struct inode *inode, struct duofs_inode *pi);
-extern void duofs_update_time(struct inode *inode, struct duofs_inode *pi);
-extern int duofs_write_inode(struct inode *inode, struct writeback_control *wbc);
-extern void duofs_dirty_inode(struct inode *inode, int flags);
-extern int duofs_notify_change(struct dentry *dentry, struct iattr *attr);
-int duofs_getattr(const struct path *path, struct kstat *stat,
+extern void pmfs_update_isize(struct inode *inode, struct pmfs_inode *pi);
+extern void pmfs_update_nlink(struct inode *inode, struct pmfs_inode *pi);
+extern void pmfs_update_time(struct inode *inode, struct pmfs_inode *pi);
+extern int pmfs_write_inode(struct inode *inode, struct writeback_control *wbc);
+extern void pmfs_dirty_inode(struct inode *inode, int flags);
+extern int pmfs_notify_change(struct dentry *dentry, struct iattr *attr);
+int pmfs_getattr(const struct path *path, struct kstat *stat,
 		u32 request_mask, unsigned int flags);
-extern void duofs_set_inode_flags(struct inode *inode, struct duofs_inode *pi);
-extern void duofs_get_inode_flags(struct inode *inode, struct duofs_inode *pi);
-extern unsigned long duofs_find_region(struct inode *inode, loff_t *offset,
+extern void pmfs_set_inode_flags(struct inode *inode, struct pmfs_inode *pi);
+extern void pmfs_get_inode_flags(struct inode *inode, struct pmfs_inode *pi);
+extern unsigned long pmfs_find_region(struct inode *inode, loff_t *offset,
 		int hole);
-extern void duofs_truncate_del(struct inode *inode);
-extern void duofs_truncate_add(struct inode *inode, u64 truncate_size);
+extern void pmfs_truncate_del(struct inode *inode);
+extern void pmfs_truncate_add(struct inode *inode, u64 truncate_size);
 
 
 #endif

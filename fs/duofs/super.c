@@ -33,7 +33,7 @@
 #include <linux/backing-dev.h>
 #include <linux/list.h>
 #include <linux/dax.h>
-#include "duofs.h"
+#include "pmfs.h"
 #include "inode.h"
 
 int measure_timing = 0;
@@ -43,50 +43,50 @@ int support_pcommit = 0;
 module_param(measure_timing, int, S_IRUGO);
 MODULE_PARM_DESC(measure_timing, "Timing measurement");
 
-static struct super_operations duofs_sops;
-static const struct export_operations duofs_export_ops;
-static struct kmem_cache *duofs_inode_cachep;
-static struct kmem_cache *duofs_transaction_cachep;
-static struct kmem_cache *duofs_range_node_cachep;
+static struct super_operations pmfs_sops;
+static const struct export_operations pmfs_export_ops;
+static struct kmem_cache *pmfs_inode_cachep;
+static struct kmem_cache *pmfs_transaction_cachep;
+static struct kmem_cache *pmfs_range_node_cachep;
 
-/* FIXME: should the following variable be one per duofs instance? */
-//unsigned int duofs_dbgmask = 0x00000010;
-unsigned int duofs_dbgmask = 0;
+/* FIXME: should the following variable be one per PMFS instance? */
+//unsigned int pmfs_dbgmask = 0x00000010;
+unsigned int pmfs_dbgmask = 0;
 
-#ifdef CONFIG_DUOFS_TEST
-static void *first_duofs_super;
+#ifdef CONFIG_PMFS_TEST
+static void *first_pmfs_super;
 
-struct duofs_super_block *get_duofs_super(void)
+struct pmfs_super_block *get_pmfs_super(void)
 {
-	return (struct duofs_super_block *)first_duofs_super;
+	return (struct pmfs_super_block *)first_pmfs_super;
 }
-EXPORT_SYMBOL(get_duofs_super);
+EXPORT_SYMBOL(get_pmfs_super);
 #endif
 
-void duofs_error_mng(struct super_block *sb, const char *fmt, ...)
+void pmfs_error_mng(struct super_block *sb, const char *fmt, ...)
 {
 	va_list args;
 
-	printk("duofs error: ");
+	printk("pmfs error: ");
 	va_start(args, fmt);
 	vprintk(fmt, args);
 	va_end(args);
 
 	if (test_opt(sb, ERRORS_PANIC))
-		panic("duofs: panic from previous error\n");
+		panic("pmfs: panic from previous error\n");
 	if (test_opt(sb, ERRORS_RO)) {
-		printk(KERN_CRIT "duofs err: remounting filesystem read-only");
+		printk(KERN_CRIT "pmfs err: remounting filesystem read-only");
 		sb->s_flags |= SB_RDONLY;
 	}
 }
 
-static void duofs_set_blocksize(struct super_block *sb, unsigned long size)
+static void pmfs_set_blocksize(struct super_block *sb, unsigned long size)
 {
 	int bits;
 
 	/*
 	 * We've already validated the user input and the value here must be
-	 * between duofs_MAX_BLOCK_SIZE and duofs_MIN_BLOCK_SIZE
+	 * between PMFS_MAX_BLOCK_SIZE and PMFS_MIN_BLOCK_SIZE
 	 * and it must be a power of 2.
 	 */
 	bits = fls(size) - 1;
@@ -94,17 +94,17 @@ static void duofs_set_blocksize(struct super_block *sb, unsigned long size)
 	sb->s_blocksize = (1 << bits);
 }
 
-static inline int duofs_has_huge_ioremap(struct super_block *sb)
+static inline int pmfs_has_huge_ioremap(struct super_block *sb)
 {
-	struct duofs_sb_info *sbi = (struct duofs_sb_info *)sb->s_fs_info;
+	struct pmfs_sb_info *sbi = (struct pmfs_sb_info *)sb->s_fs_info;
 
-	return sbi->s_mount_opt & DUOFS_MOUNT_HUGEIOREMAP;
+	return sbi->s_mount_opt & PMFS_MOUNT_HUGEIOREMAP;
 }
 
 #define HUGEPAGE_SIZE 2097152
 
-static int duofs_get_numa_block_info(struct super_block *sb,
-	struct duofs_sb_info *sbi)
+static int pmfs_get_numa_block_info(struct super_block *sb,
+	struct pmfs_sb_info *sbi)
 {
 	void *virt_addr_2 = NULL;
 	phys_addr_t phys_addr_2;
@@ -118,7 +118,7 @@ static int duofs_get_numa_block_info(struct super_block *sb,
 				   LONG_MAX / PAGE_SIZE,
 				   &virt_addr_2, &__pfn_t_2) * PAGE_SIZE;
 	if (size_2 <= 0) {
-		duofs_err(sb, "second direct_access failed\n");
+		pmfs_err(sb, "second direct_access failed\n");
 		return -EINVAL;
 	}
 
@@ -145,7 +145,7 @@ static int duofs_get_numa_block_info(struct super_block *sb,
 		BUG();
 	}
 
-	duofs_info("%s: sbi->virt_addr = 0x%016llx, sbi->phys_addr = 0x%016llx "
+	pmfs_info("%s: sbi->virt_addr = 0x%016llx, sbi->phys_addr = 0x%016llx "
 		  "sbi->virt_addr_2 = 0x%016llx, sbi->phys_addr_2 = 0x%016llx\n",
 		  __func__, sbi->virt_addr, sbi->phys_addr,
 		  sbi->virt_addr_2, sbi->phys_addr_2);
@@ -153,8 +153,8 @@ static int duofs_get_numa_block_info(struct super_block *sb,
 	return 0;
 }
 
-static int duofs_get_block_info(struct super_block *sb,
-	struct duofs_sb_info *sbi)
+static int pmfs_get_block_info(struct super_block *sb,
+	struct pmfs_sb_info *sbi)
 {
 	struct dax_device *dax_dev;
 	void *virt_addr = NULL;
@@ -166,14 +166,14 @@ static int duofs_get_block_info(struct super_block *sb,
 
 	ret = bdev_dax_supported(sb->s_bdev, PAGE_SIZE);
 	if (!ret) {
-		duofs_err(sb, "device does not support DAX\n");
+		pmfs_err(sb, "device does not support DAX\n");
 		return -EINVAL;
 	}
 
 	sbi->s_bdev = sb->s_bdev;
 	dax_dev = fs_dax_get_by_host(sb->s_bdev->bd_disk->disk_name);
 	if (!dax_dev) {
-		duofs_err(sb, "Couldn't retrieve DAX device\n");
+		pmfs_err(sb, "Couldn't retrieve DAX device\n");
 		return -EINVAL;
 	}
 
@@ -182,7 +182,7 @@ static int duofs_get_block_info(struct super_block *sb,
 	size = dax_direct_access(sbi->s_dax_dev, 0, LONG_MAX / PAGE_SIZE,
 				&virt_addr, &__pfn_t) * PAGE_SIZE;
 	if (size <= 0) {
-		duofs_err(sb, "direct_access failed\n");
+		pmfs_err(sb, "direct_access failed\n");
 		return -EINVAL;
 	}
 
@@ -199,7 +199,7 @@ static int duofs_get_block_info(struct super_block *sb,
 	return 0;
 }
 
-static loff_t duofs_max_size(int bits)
+static loff_t pmfs_max_size(int bits)
 {
 	loff_t res;
 
@@ -208,7 +208,7 @@ static loff_t duofs_max_size(int bits)
 	if (res > MAX_LFS_FILESIZE)
 		res = MAX_LFS_FILESIZE;
 
-	duofs_dbg_verbose("max file size %llu bytes\n", res);
+	pmfs_dbg_verbose("max file size %llu bytes\n", res);
 	return res;
 }
 
@@ -242,7 +242,7 @@ static const match_table_t tokens = {
 	{ Opt_err,	     NULL		  },
 };
 
-static int duofs_parse_options(char *options, struct duofs_sb_info *sbi,
+static int pmfs_parse_options(char *options, struct pmfs_sb_info *sbi,
 			       bool remount)
 {
 	char *p, *rest;
@@ -290,7 +290,7 @@ static int duofs_parse_options(char *options, struct duofs_sb_info *sbi,
 			break;
 		case Opt_strict:
 			set_opt(sbi->s_mount_opt, STRICT);
-			duofs_info("Providing strong guarantees\n");
+			pmfs_info("Providing strong guarantees\n");
 			break;
 		case Opt_num_numas:
 			if (remount)
@@ -308,8 +308,8 @@ static int duofs_parse_options(char *options, struct duofs_sb_info *sbi,
 			sbi->jsize = memparse(args[0].from, &rest);
 			/* make sure journal size is integer power of 2 */
 			if (sbi->jsize & (sbi->jsize - 1) ||
-				sbi->jsize < DUOFS_MINIMUM_JOURNAL_SIZE) {
-				duofs_dbg("Invalid jsize: "
+				sbi->jsize < PMFS_MINIMUM_JOURNAL_SIZE) {
+				pmfs_dbg("Invalid jsize: "
 					"must be whole power of 2 & >= 64KB\n");
 				goto bad_val;
 			}
@@ -340,32 +340,32 @@ static int duofs_parse_options(char *options, struct duofs_sb_info *sbi,
 			if (remount)
 				goto bad_opt;
 			set_opt(sbi->s_mount_opt, PROTECT);
-			duofs_info
-				("duofs: Enabling new Write Protection (CR0.WP)\n");
+			pmfs_info
+				("PMFS: Enabling new Write Protection (CR0.WP)\n");
 			break;
 		case Opt_wprotectold:
 			if (remount)
 				goto bad_opt;
 			set_opt(sbi->s_mount_opt, PROTECT_OLD);
-			duofs_info
-				("duofs: Enabling old Write Protection (PAGE RW Bit)\n");
+			pmfs_info
+				("PMFS: Enabling old Write Protection (PAGE RW Bit)\n");
 			break;
 		case Opt_hugemmap:
 			if (remount)
 				goto bad_opt;
 			set_opt(sbi->s_mount_opt, HUGEMMAP);
-			duofs_info("duofs: Enabling huge mappings for mmap\n");
+			pmfs_info("PMFS: Enabling huge mappings for mmap\n");
 			break;
 		case Opt_nohugeioremap:
 			if (remount)
 				goto bad_opt;
 			clear_opt(sbi->s_mount_opt, HUGEIOREMAP);
-			duofs_info("duofs: Disabling huge ioremap\n");
+			pmfs_info("PMFS: Disabling huge ioremap\n");
 			break;
 		case Opt_dbgmask:
 			if (match_int(&args[0], &option))
 				goto bad_val;
-			duofs_dbgmask = option;
+			pmfs_dbgmask = option;
 			break;
 		default: {
 			goto bad_opt;
@@ -384,9 +384,9 @@ bad_opt:
 	return -EINVAL;
 }
 
-static bool duofs_check_size (struct super_block *sb, unsigned long size)
+static bool pmfs_check_size (struct super_block *sb, unsigned long size)
 {
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	unsigned long minimum_size, num_blocks;
 
 	/* space required for super block and root directory */
@@ -395,7 +395,7 @@ static bool duofs_check_size (struct super_block *sb, unsigned long size)
 	/* space required for inode table */
 	if (sbi->num_inodes > 0)
 		num_blocks = (sbi->num_inodes >>
-			(sb->s_blocksize_bits - DUOFS_INODE_BITS)) + 1;
+			(sb->s_blocksize_bits - PMFS_INODE_BITS)) + 1;
 	else
 		num_blocks = 1;
 	minimum_size += (num_blocks << sb->s_blocksize_bits);
@@ -409,23 +409,21 @@ static bool duofs_check_size (struct super_block *sb, unsigned long size)
 }
 
 
-static struct duofs_inode *duofs_init(struct super_block *sb,
+static struct pmfs_inode *pmfs_init(struct super_block *sb,
 				    unsigned long size,
 				    unsigned long size_2)
 {
 	unsigned long blocksize;
-	u64 inode_table_start, journal_data_start;
-	struct duofs_inode *root_i;
-	struct duofs_super_block *super;
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
-	struct duofs_direntry *de;
+	u64 journal_meta_start, journal_data_start, inode_table_start;
+	struct pmfs_inode *root_i;
+	struct pmfs_super_block *super;
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
+	struct pmfs_direntry *de;
 	unsigned long blocknr;
 	int idx;
 	unsigned long num_blocks_1;
-	u64 *journal_meta_start;
-	u64 journal_start;
 
-	duofs_info("creating an empty duofs of size %lu\n", size + size_2);
+	pmfs_info("creating an empty pmfs of size %lu\n", size + size_2);
 
 	sbi->block_start[0] = (unsigned long)0;
 	sbi->block_end[0] = ((unsigned long)(size) >> PAGE_SHIFT);
@@ -449,226 +447,222 @@ static struct duofs_inode *duofs_init(struct super_block *sb,
 	sbi->num_blocks = ((unsigned long)(size + size_2) >> PAGE_SHIFT);
 
 	if (!sbi->virt_addr) {
-		printk(KERN_ERR "ioremap of the duofs image failed(1)\n");
+		printk(KERN_ERR "ioremap of the pmfs image failed(1)\n");
 		return ERR_PTR(-EINVAL);
 	}
-#ifdef CONFIG_duofs_TEST
-	if (!first_duofs_super)
-		first_duofs_super = sbi->virt_addr;
+#ifdef CONFIG_PMFS_TEST
+	if (!first_pmfs_super)
+		first_pmfs_super = sbi->virt_addr;
 #endif
 
-	duofs_dbg_verbose("duofs: Default block size set to 4K\n");
-	blocksize = sbi->blocksize = DUOFS_DEF_BLOCK_SIZE_4K;
+	pmfs_dbg_verbose("pmfs: Default block size set to 4K\n");
+	blocksize = sbi->blocksize = PMFS_DEF_BLOCK_SIZE_4K;
 
-	duofs_set_blocksize(sb, blocksize);
+	pmfs_set_blocksize(sb, blocksize);
 	blocksize = sb->s_blocksize;
 
 	if (sbi->blocksize && sbi->blocksize != blocksize)
 		sbi->blocksize = blocksize;
 
-	if (!duofs_check_size(sb, size + size_2)) {
-		duofs_dbg("Specified duofs size too small 0x%lx. Either increase"
-			" duofs size, or reduce num. of inodes (minimum 32)" 
+	if (!pmfs_check_size(sb, size + size_2)) {
+		pmfs_dbg("Specified PMFS size too small 0x%lx. Either increase"
+			" PMFS size, or reduce num. of inodes (minimum 32)" 
 			" or journal size (minimum 64KB)\n", size);
 		return ERR_PTR(-EINVAL);
 	}
 
-	journal_meta_start = kmalloc(sizeof(u64) * sbi->cpus, GFP_ATOMIC);
-	journal_start = sizeof(struct duofs_super_block);
-
-
-	for (idx = 0; idx < sbi->cpus; idx++) {
-		journal_meta_start[idx] = journal_start;
-		journal_meta_start[idx] = (journal_meta_start[idx] + CACHELINE_SIZE - 1) &
-			~(CACHELINE_SIZE - 1);
-		duofs_dbg_verbose("journal_meta_start[%d] = 0x%x\n", idx, journal_meta_start[idx]);
-		journal_start = journal_meta_start[idx] + sizeof(duofs_journal_t);
-	}
-
-	inode_table_start = journal_start;
+	journal_meta_start = sizeof(struct pmfs_super_block);
+	journal_meta_start = (journal_meta_start + CACHELINE_SIZE - 1) &
+		~(CACHELINE_SIZE - 1);
+	inode_table_start = journal_meta_start + sizeof(pmfs_journal_t);
 	inode_table_start = (inode_table_start + CACHELINE_SIZE - 1) &
 		~(CACHELINE_SIZE - 1);
 
-	if ((inode_table_start + sizeof(struct duofs_inode)) > DUOFS_SB_SIZE) {
-		duofs_dbg("duofs super block defined too small. defined 0x%x, "
-				"required 0x%llx\n", DUOFS_SB_SIZE,
-			inode_table_start + sizeof(struct duofs_inode));
+	if ((inode_table_start + sizeof(struct pmfs_inode)) > PMFS_SB_SIZE) {
+		pmfs_dbg("PMFS super block defined too small. defined 0x%x, "
+				"required 0x%llx\n", PMFS_SB_SIZE,
+			inode_table_start + sizeof(struct pmfs_inode));
 		return ERR_PTR(-EINVAL);
 	}
 
 	journal_data_start = (INODE_TABLE0_START + INODE_TABLE_NUM_BLOCKS) * blocksize;
-	//journal_data_start = duofs_SB_SIZE * 2;
+	//journal_data_start = PMFS_SB_SIZE * 2;
 	//journal_data_start = (journal_data_start + blocksize - 1) &
 	//	~(blocksize - 1);
 
-	duofs_dbg_verbose("journal meta start %llx data start 0x%llx, "
-		"journal size 0x%x, inode_table 0x%llx\n", journal_meta_start[0],
+	pmfs_dbg_verbose("journal meta start %llx data start 0x%llx, "
+		"journal size 0x%x, inode_table 0x%llx\n", journal_meta_start,
 		journal_data_start, sbi->jsize, inode_table_start);
-	duofs_dbg_verbose("max file name len %d\n", (unsigned int)DUOFS_NAME_LEN);
+	pmfs_dbg_verbose("max file name len %d\n", (unsigned int)PMFS_NAME_LEN);
 
-	super = duofs_get_super(sb);
-	duofs_memunlock_range(sb, super, journal_data_start);
+	super = pmfs_get_super(sb);
+	pmfs_memunlock_range(sb, super, journal_data_start);
 
 	/* clear out super-block and inode table */
 	memset_nt(super, 0, journal_data_start);
 	super->s_size = cpu_to_le64(size);
 	super->s_blocksize = cpu_to_le32(blocksize);
-	super->s_magic = cpu_to_le16(DUOFS_SUPER_MAGIC);
-	super->s_journal_offset = cpu_to_le64(journal_meta_start[0]);
+	super->s_magic = cpu_to_le16(PMFS_SUPER_MAGIC);
+	super->s_journal_offset = cpu_to_le64(journal_meta_start);
 	super->s_inode_table_offset = cpu_to_le64(inode_table_start);
 
-	duofs_init_blockmap(sb, journal_data_start + (sbi->jsize * sbi->cpus));
-	duofs_memlock_range(sb, super, journal_data_start);
+	pmfs_init_blockmap(sb, journal_data_start + sbi->jsize);
+	pmfs_memlock_range(sb, super, journal_data_start);
 
-	if (duofs_journal_hard_init(sb, journal_data_start, sbi->jsize) < 0) {
+	if (pmfs_journal_hard_init(sb, journal_data_start, sbi->jsize) < 0) {
 		printk(KERN_ERR "Journal hard initialization failed\n");
 		return ERR_PTR(-EINVAL);
 	}
 
-	if (duofs_init_inode_inuse_list(sb) < 0)
+	if (pmfs_init_inode_inuse_list(sb) < 0)
 		return ERR_PTR(-EINVAL);
 
-	if (duofs_init_inode_table(sb) < 0)
+	if (pmfs_init_inode_table(sb) < 0)
 		return ERR_PTR(-EINVAL);
 
-	duofs_dbg_verbose("%s: inode inuse list and inode table initialized\n",
-			  __func__);
+	pmfs_dbg_verbose("%s: inode inuse list and inode table initialized\n",
+			 __func__);
 
-	duofs_memunlock_range(sb, super, DUOFS_SB_SIZE*2);
-	duofs_sync_super(super);
-	duofs_memlock_range(sb, super, DUOFS_SB_SIZE*2);
+	pmfs_memunlock_range(sb, super, PMFS_SB_SIZE*2);
+	pmfs_sync_super(super);
+	pmfs_memlock_range(sb, super, PMFS_SB_SIZE*2);
 
-	duofs_flush_buffer(super, DUOFS_SB_SIZE, false);
-	duofs_flush_buffer((char *)super + DUOFS_SB_SIZE, sizeof(*super), false);
+	pmfs_flush_buffer(super, PMFS_SB_SIZE, false);
+	pmfs_flush_buffer((char *)super + PMFS_SB_SIZE, sizeof(*super), false);
 
-	duofs_new_blocks(sb, &blocknr, 1, DUOFS_BLOCK_TYPE_4K, 1, ANY_CPU);
+	pmfs_new_blocks(sb, &blocknr, 1, PMFS_BLOCK_TYPE_4K, 1, ANY_CPU);
 
-	root_i = duofs_get_inode(sb, DUOFS_ROOT_INO);
+	root_i = pmfs_get_inode(sb, PMFS_ROOT_INO);
+	pmfs_dbg_verbose("%s: Allocate root inode @ 0x%p\n", __func__, root_i);
 
-	duofs_memunlock_inode(sb, root_i);
+	pmfs_memunlock_inode(sb, root_i);
+	pmfs_dbg_verbose("%s: memunlock inode done\n", __func__);
 
 	root_i->i_mode = cpu_to_le16(sbi->mode | S_IFDIR);
 	root_i->i_uid = cpu_to_le32(from_kuid(&init_user_ns, sbi->uid));
 	root_i->i_gid = cpu_to_le32(from_kgid(&init_user_ns, sbi->gid));
 	root_i->i_links_count = cpu_to_le16(2);
-	root_i->i_blk_type = DUOFS_BLOCK_TYPE_4K;
+	root_i->i_blk_type = PMFS_BLOCK_TYPE_4K;
+
+	pmfs_dbg_verbose("%s: partially initialized the root_i inode\n", __func__);
+
 	root_i->i_flags = 0;
 	root_i->i_blocks = cpu_to_le64(1);
 	root_i->i_size = cpu_to_le64(sb->s_blocksize);
 	root_i->i_atime = root_i->i_mtime = root_i->i_ctime =
 		cpu_to_le32(get_seconds());
-	root_i->root = cpu_to_le64(duofs_get_block_off(sb, blocknr,
-						       DUOFS_BLOCK_TYPE_4K));
+	root_i->root = cpu_to_le64(pmfs_get_block_off(sb, blocknr,
+						       PMFS_BLOCK_TYPE_4K));
 	root_i->height = 0;
-	/* duofs_sync_inode(root_i); */
-	duofs_memlock_inode(sb, root_i);
-	duofs_flush_buffer(root_i, sizeof(*root_i), false);
+	/* pmfs_sync_inode(root_i); */
+	pmfs_memlock_inode(sb, root_i);
+	pmfs_flush_buffer(root_i, sizeof(*root_i), false);
 
-	duofs_dbg_verbose("%s: initialized the root_i inode\n", __func__);
+	pmfs_dbg_verbose("%s: initialized the root_i inode\n", __func__);
 
-	de = (struct duofs_direntry *)
-		duofs_get_block(sb, duofs_get_block_off(sb, blocknr, DUOFS_BLOCK_TYPE_4K));
+	de = (struct pmfs_direntry *)
+		pmfs_get_block(sb, pmfs_get_block_off(sb, blocknr, PMFS_BLOCK_TYPE_4K));
 
-	duofs_memunlock_range(sb, de, sb->s_blocksize);
-	de->ino = cpu_to_le64(DUOFS_ROOT_INO);
+	pmfs_memunlock_range(sb, de, sb->s_blocksize);
+	de->ino = cpu_to_le64(PMFS_ROOT_INO);
 	de->name_len = 1;
-	de->de_len = cpu_to_le16(DUOFS_DIR_REC_LEN(de->name_len));
+	de->de_len = cpu_to_le16(PMFS_DIR_REC_LEN(de->name_len));
 	strcpy(de->name, ".");
-	de = (struct duofs_direntry *)((char *)de + le16_to_cpu(de->de_len));
-	de->ino = cpu_to_le64(DUOFS_ROOT_INO);
-	de->de_len = cpu_to_le16(sb->s_blocksize - DUOFS_DIR_REC_LEN(1));
+	de = (struct pmfs_direntry *)((char *)de + le16_to_cpu(de->de_len));
+	de->ino = cpu_to_le64(PMFS_ROOT_INO);
+	de->de_len = cpu_to_le16(sb->s_blocksize - PMFS_DIR_REC_LEN(1));
 	de->name_len = 2;
 
-	duofs_dbg_verbose("%s: initialized the de inode\n", __func__);
+	pmfs_dbg_verbose("%s: initialized the de inode\n", __func__);
 
 	strcpy(de->name, "..");
-	duofs_memlock_range(sb, de, sb->s_blocksize);
-	duofs_flush_buffer(de, DUOFS_DIR_REC_LEN(2), false);
+	pmfs_memlock_range(sb, de, sb->s_blocksize);
+	pmfs_flush_buffer(de, PMFS_DIR_REC_LEN(2), false);
 	PERSISTENT_MARK();
 	PERSISTENT_BARRIER();
 	return root_i;
 }
 
-static inline void set_default_opts(struct duofs_sb_info *sbi)
+static inline void set_default_opts(struct pmfs_sb_info *sbi)
 {
 	/* set_opt(sbi->s_mount_opt, PROTECT); */
 	set_opt(sbi->s_mount_opt, HUGEIOREMAP);
 	set_opt(sbi->s_mount_opt, ERRORS_CONT);
-	sbi->jsize = DUOFS_DEFAULT_JOURNAL_SIZE;
+	sbi->jsize = PMFS_DEFAULT_JOURNAL_SIZE;
 	sbi->cpus = num_online_cpus();
 	sbi->num_numa_nodes = 1;
 	sbi->map_id = 0;
-	duofs_info("%d cpus online\n", sbi->cpus);
+	pmfs_info("%d cpus online\n", sbi->cpus);
 }
 
-static void duofs_root_check(struct super_block *sb, struct duofs_inode *root_pi)
+static void pmfs_root_check(struct super_block *sb, struct pmfs_inode *root_pi)
 {
 /*
  *      if (root_pi->i_d.d_next) {
- *              duofs_warn("root->next not NULL, trying to fix\n");
+ *              pmfs_warn("root->next not NULL, trying to fix\n");
  *              goto fail1;
  *      }
  */
 	if (!S_ISDIR(le16_to_cpu(root_pi->i_mode)))
-		duofs_warn("root is not a directory!\n");
+		pmfs_warn("root is not a directory!\n");
 #if 0
-	if (duofs_calc_checksum((u8 *)root_pi, duofs_INODE_SIZE)) {
-		duofs_dbg("checksum error in root inode, trying to fix\n");
+	if (pmfs_calc_checksum((u8 *)root_pi, PMFS_INODE_SIZE)) {
+		pmfs_dbg("checksum error in root inode, trying to fix\n");
 		goto fail3;
 	}
 #endif
 }
 
-int duofs_check_integrity(struct super_block *sb,
-			  struct duofs_super_block *super)
+int pmfs_check_integrity(struct super_block *sb,
+			  struct pmfs_super_block *super)
 {
-	struct duofs_super_block *super_redund;
+	struct pmfs_super_block *super_redund;
 
 	super_redund =
-		(struct duofs_super_block *)((char *)super + DUOFS_SB_SIZE);
+		(struct pmfs_super_block *)((char *)super + PMFS_SB_SIZE);
 
 	/* Do sanity checks on the superblock */
-	if (le16_to_cpu(super->s_magic) != DUOFS_SUPER_MAGIC) {
-		if (le16_to_cpu(super_redund->s_magic) != DUOFS_SUPER_MAGIC) {
-			printk(KERN_ERR "Can't find a valid duofs partition\n");
+	if (le16_to_cpu(super->s_magic) != PMFS_SUPER_MAGIC) {
+		if (le16_to_cpu(super_redund->s_magic) != PMFS_SUPER_MAGIC) {
+			printk(KERN_ERR "Can't find a valid pmfs partition\n");
 			goto out;
 		} else {
-			duofs_warn
+			pmfs_warn
 				("Error in super block: try to repair it with "
 				"the redundant copy");
 			/* Try to auto-recover the super block */
 			if (sb)
-				duofs_memunlock_super(sb, super);
+				pmfs_memunlock_super(sb, super);
 			memcpy(super, super_redund,
-				sizeof(struct duofs_super_block));
+				sizeof(struct pmfs_super_block));
 			if (sb)
-				duofs_memlock_super(sb, super);
-			duofs_flush_buffer(super, sizeof(*super), false);
-			duofs_flush_buffer((char *)super + DUOFS_SB_SIZE,
+				pmfs_memlock_super(sb, super);
+			pmfs_flush_buffer(super, sizeof(*super), false);
+			pmfs_flush_buffer((char *)super + PMFS_SB_SIZE,
 				sizeof(*super), false);
 
 		}
 	}
 
 	/* Read the superblock */
-	if (duofs_calc_checksum((u8 *)super, DUOFS_SB_STATIC_SIZE(super))) {
-		if (duofs_calc_checksum((u8 *)super_redund,
-					DUOFS_SB_STATIC_SIZE(super_redund))) {
+	if (pmfs_calc_checksum((u8 *)super, PMFS_SB_STATIC_SIZE(super))) {
+		if (pmfs_calc_checksum((u8 *)super_redund,
+					PMFS_SB_STATIC_SIZE(super_redund))) {
 			printk(KERN_ERR "checksum error in super block\n");
 			goto out;
 		} else {
-			duofs_warn
+			pmfs_warn
 				("Error in super block: try to repair it with "
 				"the redundant copy");
 			/* Try to auto-recover the super block */
 			if (sb)
-				duofs_memunlock_super(sb, super);
+				pmfs_memunlock_super(sb, super);
 			memcpy(super, super_redund,
-				sizeof(struct duofs_super_block));
+				sizeof(struct pmfs_super_block));
 			if (sb)
-				duofs_memlock_super(sb, super);
-			duofs_flush_buffer(super, sizeof(*super), false);
-			duofs_flush_buffer((char *)super + DUOFS_SB_SIZE,
+				pmfs_memlock_super(sb, super);
+			pmfs_flush_buffer(super, sizeof(*super), false);
+			pmfs_flush_buffer((char *)super + PMFS_SB_SIZE,
 				sizeof(*super), false);
 		}
 	}
@@ -678,57 +672,57 @@ out:
 	return 0;
 }
 
-static void duofs_recover_truncate_list(struct super_block *sb)
+static void pmfs_recover_truncate_list(struct super_block *sb)
 {
-	struct duofs_inode_truncate_item *head = duofs_get_truncate_list_head(sb);
+	struct pmfs_inode_truncate_item *head = pmfs_get_truncate_list_head(sb);
 	u64 ino_next = le64_to_cpu(head->i_next_truncate);
-	struct duofs_inode *pi;
-	struct duofs_inode_truncate_item *li;
+	struct pmfs_inode *pi;
+	struct pmfs_inode_truncate_item *li;
 	struct inode *inode;
 
 	if (ino_next == 0)
 		return;
 
 	while (ino_next != 0) {
-		pi = duofs_get_inode(sb, ino_next);
-		li = (struct duofs_inode_truncate_item *)(pi + 1);
-		inode = duofs_iget(sb, ino_next);
+		pi = pmfs_get_inode(sb, ino_next);
+		li = (struct pmfs_inode_truncate_item *)(pi + 1);
+		inode = pmfs_iget(sb, ino_next);
 		if (IS_ERR(inode))
 			break;
-		duofs_dbg("Recover ino %llx nlink %d sz %llx:%llx\n", ino_next,
+		pmfs_dbg("Recover ino %llx nlink %d sz %llx:%llx\n", ino_next,
 			inode->i_nlink, pi->i_size, li->i_truncatesize);
 		if (inode->i_nlink) {
 			/* set allocation hint */
-			/*duofs_set_blocksize_hint(sb, pi, 
+			/*pmfs_set_blocksize_hint(sb, pi, 
 					le64_to_cpu(li->i_truncatesize));
 			*/
-			duofs_setsize(inode, le64_to_cpu(li->i_truncatesize));
-			duofs_update_isize(inode, pi);
+			pmfs_setsize(inode, le64_to_cpu(li->i_truncatesize));
+			pmfs_update_isize(inode, pi);
 		} else {
 			/* free the inode */
-			duofs_dbg("deleting unreferenced inode %lx\n",
+			pmfs_dbg("deleting unreferenced inode %lx\n",
 				inode->i_ino);
 		}
 		iput(inode);
-		duofs_flush_buffer(pi, CACHELINE_SIZE, false);
+		pmfs_flush_buffer(pi, CACHELINE_SIZE, false);
 		ino_next = le64_to_cpu(li->i_next_truncate);
 	}
 	PERSISTENT_MARK();
 	PERSISTENT_BARRIER();
 	/* reset the truncate_list */
-	duofs_memunlock_range(sb, head, sizeof(*head));
+	pmfs_memunlock_range(sb, head, sizeof(*head));
 	head->i_next_truncate = 0;
-	duofs_memlock_range(sb, head, sizeof(*head));
-	duofs_flush_buffer(head, sizeof(*head), false);
+	pmfs_memlock_range(sb, head, sizeof(*head));
+	pmfs_flush_buffer(head, sizeof(*head), false);
 	PERSISTENT_MARK();
 	PERSISTENT_BARRIER();
 }
 
-static int duofs_fill_super(struct super_block *sb, void *data, int silent)
+static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 {
-	struct duofs_super_block *super;
-	struct duofs_inode *root_pi;
-	struct duofs_sb_info *sbi = NULL;
+	struct pmfs_super_block *super;
+	struct pmfs_inode *root_pi;
+	struct pmfs_sb_info *sbi = NULL;
 	struct inode_map *inode_map;
 	struct inode *root_i = NULL;
 	unsigned long blocksize;
@@ -736,31 +730,31 @@ static int duofs_fill_super(struct super_block *sb, void *data, int silent)
 	int retval = -EINVAL;
 	int i;
 
-	BUILD_BUG_ON(sizeof(struct duofs_super_block) > DUOFS_SB_SIZE);
-	BUILD_BUG_ON(sizeof(struct duofs_inode) > DUOFS_INODE_SIZE);
+	BUILD_BUG_ON(sizeof(struct pmfs_super_block) > PMFS_SB_SIZE);
+	BUILD_BUG_ON(sizeof(struct pmfs_inode) > PMFS_INODE_SIZE);
 
 	if (arch_has_pcommit()) {
-		duofs_info("arch has PCOMMIT support\n");
+		pmfs_info("arch has PCOMMIT support\n");
 		support_pcommit = 1;
 	} else {
-		duofs_info("arch does not have PCOMMIT support\n");
+		pmfs_info("arch does not have PCOMMIT support\n");
 	}
 
 	if (arch_has_clwb()) {
-		duofs_info("arch has CLWB support\n");
+		pmfs_info("arch has CLWB support\n");
 		support_clwb = 1;
 	} else {
-		duofs_info("arch does not have CLWB support\n");
+		pmfs_info("arch does not have CLWB support\n");
 	}
 
-	sbi = kzalloc(sizeof(struct duofs_sb_info), GFP_KERNEL);
+	sbi = kzalloc(sizeof(struct pmfs_sb_info), GFP_KERNEL);
 	if (!sbi)
 		return -ENOMEM;
 	sb->s_fs_info = sbi;
 
 	set_default_opts(sbi);
 
-	if (duofs_get_block_info(sb, sbi))
+	if (pmfs_get_block_info(sb, sbi))
 		goto out;
 
 	get_random_bytes(&random, sizeof(u32));
@@ -785,7 +779,7 @@ static int duofs_fill_super(struct super_block *sb, void *data, int silent)
 
 	if (!sbi->inode_maps) {
 		retval = -ENOMEM;
-		duofs_dbg("%s: Allocating inode maps failed.",
+		pmfs_dbg("%s: Allocating inode maps failed.",
 			 __func__);
 		goto out;
 	}
@@ -796,13 +790,13 @@ static int duofs_fill_super(struct super_block *sb, void *data, int silent)
 		inode_map->inode_inuse_tree = RB_ROOT;
 	}
 
-	if (duofs_parse_options(data, sbi, 0))
+	if (pmfs_parse_options(data, sbi, 0))
 		goto out;
 
 	sbi->cpu_numa_node = kcalloc(sbi->cpus, sizeof(u8), GFP_KERNEL);
 	if (!sbi->cpu_numa_node) {
 		retval = -ENOMEM;
-		duofs_dbg("%s: Allocating cpu numa node struct failed.",
+		pmfs_dbg("%s: Allocating cpu numa node struct failed.",
 			 __func__);
 		goto out;
 	}
@@ -811,7 +805,7 @@ static int duofs_fill_super(struct super_block *sb, void *data, int silent)
 				 sizeof(struct numa_node_cpus), GFP_KERNEL);
 	if (!sbi->numa_cpus) {
 		retval = -ENOMEM;
-		duofs_dbg("%s: Allocating numa node cpu struct failed.",
+		pmfs_dbg("%s: Allocating numa node cpu struct failed.",
 			 __func__);
 		goto out;
 	}
@@ -821,7 +815,7 @@ static int duofs_fill_super(struct super_block *sb, void *data, int silent)
 						 sizeof(int), GFP_KERNEL);
 		if (!sbi->numa_cpus[i].cpus) {
 			retval = -ENOMEM;
-			duofs_dbg("%s: Allocating cpu int array failed.",
+			pmfs_dbg("%s: Allocating cpu int array failed.",
 				 __func__);
 			goto out;
 		}
@@ -867,7 +861,7 @@ static int duofs_fill_super(struct super_block *sb, void *data, int silent)
 	}
 
 	if (sbi->num_numa_nodes == 2)
-		duofs_get_numa_block_info(sb, sbi);
+		pmfs_get_numa_block_info(sb, sbi);
 	else {
 		sbi->virt_addr_2 = 0;
 		sbi->phys_addr_2 = 0;
@@ -888,71 +882,71 @@ static int duofs_fill_super(struct super_block *sb, void *data, int silent)
 
 	set_opt(sbi->s_mount_opt, MOUNTING);
 
-	if (duofs_alloc_block_free_lists(sb)) {
+	if (pmfs_alloc_block_free_lists(sb)) {
 		retval = -ENOMEM;
-		duofs_err(sb, "%s: Failed to allocate block free lists.",
+		pmfs_err(sb, "%s: Failed to allocate block free lists.",
 			 __func__);
 		goto out;
 	}
 
-	duofs_dbg_verbose("Calling duofs_init");
+	pmfs_dbg_verbose("Calling pmfs_init");
 
-	/* Init a new duofs instance */
-	if (sbi->s_mount_opt & DUOFS_MOUNT_FORMAT) {
-		root_pi = duofs_init(sb, sbi->initsize, sbi->initsize_2);
+	/* Init a new pmfs instance */
+	if (sbi->s_mount_opt & PMFS_MOUNT_FORMAT) {
+		root_pi = pmfs_init(sb, sbi->initsize, sbi->initsize_2);
 		if (IS_ERR(root_pi))
 			goto out;
-		super = duofs_get_super(sb);
+		super = pmfs_get_super(sb);
 		goto setup_sb;
 	}
-	duofs_dbg_verbose("checking physical address 0x%016llx for duofs image\n",
+	pmfs_dbg_verbose("checking physical address 0x%016llx for pmfs image\n",
 		  (u64)sbi->phys_addr);
 
-	super = duofs_get_super(sb);
+	super = pmfs_get_super(sb);
 
-	if (duofs_journal_soft_init(sb)) {
+	if (pmfs_journal_soft_init(sb)) {
 		retval = -EINVAL;
 		printk(KERN_ERR "Journal initialization failed\n");
 		goto out;
 	}
-	if (duofs_recover_journal(sb)) {
+	if (pmfs_recover_journal(sb)) {
 		retval = -EINVAL;
 		printk(KERN_ERR "Journal recovery failed\n");
 		goto out;
 	}
 
-	if (duofs_check_integrity(sb, super) == 0) {
-		duofs_dbg("Memory contains invalid duofs %x:%x\n",
-				le16_to_cpu(super->s_magic), DUOFS_SUPER_MAGIC);
+	if (pmfs_check_integrity(sb, super) == 0) {
+		pmfs_dbg("Memory contains invalid pmfs %x:%x\n",
+				le16_to_cpu(super->s_magic), PMFS_SUPER_MAGIC);
 		goto out;
 	}
 
 	blocksize = le32_to_cpu(super->s_blocksize);
-	duofs_set_blocksize(sb, blocksize);
+	pmfs_set_blocksize(sb, blocksize);
 
-	duofs_dbg_verbose("blocksize %lu\n", blocksize);
+	pmfs_dbg_verbose("blocksize %lu\n", blocksize);
 
 	/* Read the root inode */
-	root_pi = duofs_get_inode(sb, DUOFS_ROOT_INO);
+	root_pi = pmfs_get_inode(sb, PMFS_ROOT_INO);
 
 	/* Check that the root inode is in a sane state */
-	duofs_root_check(sb, root_pi);
+	pmfs_root_check(sb, root_pi);
 
-#ifdef CONFIG_duofs_TEST
-	if (!first_duofs_super)
-		first_duofs_super = sbi->virt_addr;
+#ifdef CONFIG_PMFS_TEST
+	if (!first_pmfs_super)
+		first_pmfs_super = sbi->virt_addr;
 #endif
 
 	/* Set it all up.. */
 setup_sb:
 	sb->s_magic = le16_to_cpu(super->s_magic);
-	sb->s_op = &duofs_sops;
-	sb->s_maxbytes = duofs_max_size(sb->s_blocksize_bits);
+	sb->s_op = &pmfs_sops;
+	sb->s_maxbytes = pmfs_max_size(sb->s_blocksize_bits);
 	sb->s_time_gran = 1;
-	sb->s_export_op = &duofs_export_ops;
+	sb->s_export_op = &pmfs_export_ops;
 	sb->s_xattr = NULL;
 	sb->s_flags |= SB_NOSEC;
-	root_i = duofs_iget(sb, DUOFS_ROOT_INO);
+	root_i = pmfs_iget(sb, PMFS_ROOT_INO);
 	if (IS_ERR(root_i)) {
 		retval = PTR_ERR(root_i);
 		goto out;
@@ -960,12 +954,12 @@ setup_sb:
 
 	sb->s_root = d_make_root(root_i);
 	if (!sb->s_root) {
-		printk(KERN_ERR "get duofs root inode failed\n");
+		printk(KERN_ERR "get pmfs root inode failed\n");
 		retval = -ENOMEM;
 		goto out;
 	}
 
-	duofs_recover_truncate_list(sb);
+	pmfs_recover_truncate_list(sb);
 
 	if (!(sb->s_flags & SB_RDONLY)) {
 		u64 mnt_write_time;
@@ -973,11 +967,11 @@ setup_sb:
 		mnt_write_time = (get_seconds() & 0xFFFFFFFF);
 		mnt_write_time = mnt_write_time | (mnt_write_time << 32);
 
-		duofs_memunlock_range(sb, &super->s_mtime, 8);
-		duofs_memcpy_atomic(&super->s_mtime, &mnt_write_time, 8);
-		duofs_memlock_range(sb, &super->s_mtime, 8);
+		pmfs_memunlock_range(sb, &super->s_mtime, 8);
+		pmfs_memcpy_atomic(&super->s_mtime, &mnt_write_time, 8);
+		pmfs_memlock_range(sb, &super->s_mtime, 8);
 
-		duofs_flush_buffer(&super->s_mtime, 8, false);
+		pmfs_flush_buffer(&super->s_mtime, 8, false);
 		PERSISTENT_MARK();
 		PERSISTENT_BARRIER();
 	}
@@ -990,30 +984,30 @@ out:
 	return retval;
 }
 
-int duofs_statfs(struct dentry *d, struct kstatfs *buf)
+int pmfs_statfs(struct dentry *d, struct kstatfs *buf)
 {
 	struct super_block *sb = d->d_sb;
-	struct duofs_sb_info *sbi = (struct duofs_sb_info *)sb->s_fs_info;
+	struct pmfs_sb_info *sbi = (struct pmfs_sb_info *)sb->s_fs_info;
 
-	buf->f_type = DUOFS_SUPER_MAGIC;
+	buf->f_type = PMFS_SUPER_MAGIC;
 	buf->f_bsize = sb->s_blocksize;
 
 	buf->f_blocks = sbi->num_blocks;
-	buf->f_bfree = buf->f_bavail = duofs_count_free_blocks(sb);
+	buf->f_bfree = buf->f_bavail = pmfs_count_free_blocks(sb);
 	buf->f_files = (sbi->s_inodes_count);
 	buf->f_ffree = (sbi->s_free_inodes_count);
-	buf->f_namelen = DUOFS_NAME_LEN;
-	duofs_dbg_verbose("duofs_stats: total 4k free blocks 0x%llx\n",
+	buf->f_namelen = PMFS_NAME_LEN;
+	pmfs_dbg_verbose("pmfs_stats: total 4k free blocks 0x%llx\n",
 		buf->f_bfree);
-	duofs_dbg_verbose("total inodes 0x%x, free inodes 0x%x, "
+	pmfs_dbg_verbose("total inodes 0x%x, free inodes 0x%x, "
 		"blocknodes 0x%lx\n", (sbi->s_inodes_count),
 		(sbi->s_free_inodes_count), (sbi->num_blocknode_allocated));
 	return 0;
 }
 
-static int duofs_show_options(struct seq_file *seq, struct dentry *root)
+static int pmfs_show_options(struct seq_file *seq, struct dentry *root)
 {
-	struct duofs_sb_info *sbi = DUOFS_SB(root->d_sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(root->d_sb);
 
 	seq_printf(seq, ",physaddr=0x%016llx", (u64)sbi->phys_addr);
 	seq_printf(seq, ",virtaddr=0x%016llx", (u64)sbi->virt_addr);
@@ -1052,12 +1046,12 @@ static int duofs_show_options(struct seq_file *seq, struct dentry *root)
 	return 0;
 }
 
-int duofs_remount(struct super_block *sb, int *mntflags, char *data)
+int pmfs_remount(struct super_block *sb, int *mntflags, char *data)
 {
 	unsigned long old_sb_flags;
 	unsigned long old_mount_opt;
-	struct duofs_super_block *ps;
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_super_block *ps;
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	int ret = -EINVAL;
 
 	/* Store the old options */
@@ -1065,24 +1059,24 @@ int duofs_remount(struct super_block *sb, int *mntflags, char *data)
 	old_sb_flags = sb->s_flags;
 	old_mount_opt = sbi->s_mount_opt;
 
-	if (duofs_parse_options(data, sbi, 1))
+	if (pmfs_parse_options(data, sbi, 1))
 		goto restore_opt;
 
 	sb->s_flags = (sb->s_flags & ~SB_POSIXACL) |
-		      ((sbi->s_mount_opt & DUOFS_MOUNT_POSIX_ACL) ? SB_POSIXACL : 0);
+		      ((sbi->s_mount_opt & PMFS_MOUNT_POSIX_ACL) ? SB_POSIXACL : 0);
 
 	if ((*mntflags & SB_RDONLY) != (sb->s_flags & SB_RDONLY)) {
 		u64 mnt_write_time;
-		ps = duofs_get_super(sb);
+		ps = pmfs_get_super(sb);
 		/* update mount time and write time atomically. */
 		mnt_write_time = (get_seconds() & 0xFFFFFFFF);
 		mnt_write_time = mnt_write_time | (mnt_write_time << 32);
 
-		duofs_memunlock_range(sb, &ps->s_mtime, 8);
-		duofs_memcpy_atomic(&ps->s_mtime, &mnt_write_time, 8);
-		duofs_memlock_range(sb, &ps->s_mtime, 8);
+		pmfs_memunlock_range(sb, &ps->s_mtime, 8);
+		pmfs_memcpy_atomic(&ps->s_mtime, &mnt_write_time, 8);
+		pmfs_memlock_range(sb, &ps->s_mtime, 8);
 
-		duofs_flush_buffer(&ps->s_mtime, 8, false);
+		pmfs_flush_buffer(&ps->s_mtime, 8, false);
 		PERSISTENT_MARK();
 		PERSISTENT_BARRIER();
 	}
@@ -1098,83 +1092,83 @@ restore_opt:
 	return ret;
 }
 
-static void duofs_put_super(struct super_block *sb)
+static void pmfs_put_super(struct super_block *sb)
 {
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	struct list_head *head = &(sbi->block_inuse_head);
 	struct inode_map *inode_map;
 	int i;
 
-#ifdef CONFIG_duofs_TEST
-	if (first_duofs_super == sbi->virt_addr)
-		first_duofs_super = NULL;
+#ifdef CONFIG_PMFS_TEST
+	if (first_pmfs_super == sbi->virt_addr)
+		first_pmfs_super = NULL;
 #endif
 
-	/* It's unmount time, so unmap the duofs memory */
+	/* It's unmount time, so unmap the pmfs memory */
 	if (sbi->virt_addr) {
-		duofs_save_blocknode_mappings(sb);
-		duofs_journal_uninit(sb);
+		pmfs_save_blocknode_mappings(sb);
+		pmfs_journal_uninit(sb);
 		sbi->virt_addr = NULL;
 	}
 
-	duofs_delete_free_lists(sb);
+	pmfs_delete_free_lists(sb);
 	kfree(sbi->free_lists);
 
 	for (i = 0; i < sbi->cpus; i++) {
 		inode_map = &sbi->inode_maps[i];
-		duofs_dbg_verbose("CPU %d: inode allocated %d, freed %d\n",
+		pmfs_dbg_verbose("CPU %d: inode allocated %d, freed %d\n",
 				 i, inode_map->allocated, inode_map->freed);
 	}
 
 	kfree(sbi->inode_maps);
 
 	sb->s_fs_info = NULL;
-	duofs_dbgmask = 0;
+	pmfs_dbgmask = 0;
 	kfree(sbi);
 }
 
-inline void duofs_free_transaction(duofs_transaction_t *trans)
+inline void pmfs_free_transaction(pmfs_transaction_t *trans)
 {
-	kmem_cache_free(duofs_transaction_cachep, trans);
+	kmem_cache_free(pmfs_transaction_cachep, trans);
 }
 
-void duofs_free_range_node(struct duofs_range_node *node)
+void pmfs_free_range_node(struct pmfs_range_node *node)
 {
-	kmem_cache_free(duofs_range_node_cachep, node);
+	kmem_cache_free(pmfs_range_node_cachep, node);
 }
 
-void duofs_free_inode_node(struct duofs_range_node *node)
+void pmfs_free_inode_node(struct pmfs_range_node *node)
 {
-	duofs_free_range_node(node);
+	pmfs_free_range_node(node);
 }
 
-void duofs_free_dir_node(struct duofs_range_node *node)
+void pmfs_free_dir_node(struct pmfs_range_node *node)
 {
-	duofs_free_range_node(node);
+	pmfs_free_range_node(node);
 }
 
-void duofs_free_vma_item(struct super_block *sb,
+void pmfs_free_vma_item(struct super_block *sb,
 	struct vma_item *item)
 {
-	duofs_free_range_node((struct duofs_range_node *)item);
+	pmfs_free_range_node((struct pmfs_range_node *)item);
 }
 
-void duofs_free_blocknode(struct duofs_range_node *node)
+void pmfs_free_blocknode(struct pmfs_range_node *node)
 {
-	duofs_free_range_node(node);
+	pmfs_free_range_node(node);
 }
 
-inline duofs_transaction_t *duofs_alloc_transaction(void)
+inline pmfs_transaction_t *pmfs_alloc_transaction(void)
 {
-	return (duofs_transaction_t *)
-		kmem_cache_alloc(duofs_transaction_cachep, GFP_NOFS);
+	return (pmfs_transaction_t *)
+		kmem_cache_alloc(pmfs_transaction_cachep, GFP_NOFS);
 }
 
-static struct inode *duofs_alloc_inode(struct super_block *sb)
+static struct inode *pmfs_alloc_inode(struct super_block *sb)
 {
-	struct duofs_inode_info *vi;
+	struct pmfs_inode_info *vi;
 
-	vi = kmem_cache_alloc(duofs_inode_cachep, GFP_NOFS);
+	vi = kmem_cache_alloc(pmfs_inode_cachep, GFP_NOFS);
 	if (!vi)
 		return NULL;
 
@@ -1182,59 +1176,59 @@ static struct inode *duofs_alloc_inode(struct super_block *sb)
 	return &vi->vfs_inode;
 }
 
-struct duofs_range_node *duofs_alloc_range_node_atomic(struct super_block *sb)
+struct pmfs_range_node *pmfs_alloc_range_node_atomic(struct super_block *sb)
 {
-	struct duofs_range_node *p;
+	struct pmfs_range_node *p;
 
-	p = (struct duofs_range_node *)
-		kmem_cache_zalloc(duofs_range_node_cachep, GFP_ATOMIC);
+	p = (struct pmfs_range_node *)
+		kmem_cache_zalloc(pmfs_range_node_cachep, GFP_ATOMIC);
 	return p;
 }
 
-struct duofs_range_node *duofs_alloc_range_node(struct super_block *sb)
+struct pmfs_range_node *pmfs_alloc_range_node(struct super_block *sb)
 {
-	struct duofs_range_node *p;
+	struct pmfs_range_node *p;
 
-	p = (struct duofs_range_node *)
-		kmem_cache_zalloc(duofs_range_node_cachep, GFP_NOFS);
+	p = (struct pmfs_range_node *)
+		kmem_cache_zalloc(pmfs_range_node_cachep, GFP_NOFS);
 	return p;
 }
 
-struct duofs_range_node *duofs_alloc_blocknode(struct super_block *sb)
+struct pmfs_range_node *pmfs_alloc_blocknode(struct super_block *sb)
 {
-	return duofs_alloc_range_node(sb);
+	return pmfs_alloc_range_node(sb);
 }
 
-struct duofs_range_node *duofs_alloc_inode_node(struct super_block *sb)
+struct pmfs_range_node *pmfs_alloc_inode_node(struct super_block *sb)
 {
-	return duofs_alloc_range_node(sb);
+	return pmfs_alloc_range_node(sb);
 }
 
-struct duofs_range_node *duofs_alloc_dir_node(struct super_block *sb)
+struct pmfs_range_node *pmfs_alloc_dir_node(struct super_block *sb)
 {
-	return duofs_alloc_range_node(sb);
+	return pmfs_alloc_range_node(sb);
 }
 
-struct vma_item *duofs_alloc_vma_item(struct super_block *sb)
+struct vma_item *pmfs_alloc_vma_item(struct super_block *sb)
 {
-	return (struct vma_item *)duofs_alloc_range_node(sb);
+	return (struct vma_item *)pmfs_alloc_range_node(sb);
 }
 
-static void duofs_i_callback(struct rcu_head *head)
+static void pmfs_i_callback(struct rcu_head *head)
 {
 	struct inode *inode = container_of(head, struct inode, i_rcu);
 
-	kmem_cache_free(duofs_inode_cachep, DUOFS_I(inode));
+	kmem_cache_free(pmfs_inode_cachep, PMFS_I(inode));
 }
 
-static void duofs_destroy_inode(struct inode *inode)
+static void pmfs_destroy_inode(struct inode *inode)
 {
-	call_rcu(&inode->i_rcu, duofs_i_callback);
+	call_rcu(&inode->i_rcu, pmfs_i_callback);
 }
 
 static void init_once(void *foo)
 {
-	struct duofs_inode_info *vi = foo;
+	struct pmfs_inode_info *vi = foo;
 
 	vi->i_dir_start_lookup = 0;
 	INIT_LIST_HEAD(&vi->i_truncated);
@@ -1244,11 +1238,11 @@ static void init_once(void *foo)
 
 static int __init init_rangenode_cache(void)
 {
-	duofs_range_node_cachep = kmem_cache_create("duofs_range_node_cache",
-						   sizeof(struct duofs_range_node),
+	pmfs_range_node_cachep = kmem_cache_create("pmfs_range_node_cache",
+						   sizeof(struct pmfs_range_node),
 						   0, (SLAB_RECLAIM_ACCOUNT |
 						       SLAB_MEM_SPREAD), NULL);
-	if (duofs_range_node_cachep == NULL)
+	if (pmfs_range_node_cachep == NULL)
 		return -ENOMEM;
 	return 0;
 }
@@ -1256,22 +1250,22 @@ static int __init init_rangenode_cache(void)
 
 static int __init init_inodecache(void)
 {
-	duofs_inode_cachep = kmem_cache_create("duofs_inode_cache",
-					       sizeof(struct duofs_inode_info),
+	pmfs_inode_cachep = kmem_cache_create("pmfs_inode_cache",
+					       sizeof(struct pmfs_inode_info),
 					       0, (SLAB_RECLAIM_ACCOUNT |
 						   SLAB_MEM_SPREAD), init_once);
-	if (duofs_inode_cachep == NULL)
+	if (pmfs_inode_cachep == NULL)
 		return -ENOMEM;
 	return 0;
 }
 
 static int __init init_transaction_cache(void)
 {
-	duofs_transaction_cachep = kmem_cache_create("duofs_journal_transaction",
-			sizeof(duofs_transaction_t), 0, (SLAB_RECLAIM_ACCOUNT |
+	pmfs_transaction_cachep = kmem_cache_create("pmfs_journal_transaction",
+			sizeof(pmfs_transaction_t), 0, (SLAB_RECLAIM_ACCOUNT |
 			SLAB_MEM_SPREAD), NULL);
-	if (duofs_transaction_cachep == NULL) {
-		duofs_dbg("duofs: failed to init transaction cache\n");
+	if (pmfs_transaction_cachep == NULL) {
+		pmfs_dbg("PMFS: failed to init transaction cache\n");
 		return -ENOMEM;
 	}
 	return 0;
@@ -1279,9 +1273,9 @@ static int __init init_transaction_cache(void)
 
 static void destroy_transaction_cache(void)
 {
-	if (duofs_transaction_cachep)
-		kmem_cache_destroy(duofs_transaction_cachep);
-	duofs_transaction_cachep = NULL;
+	if (pmfs_transaction_cachep)
+		kmem_cache_destroy(pmfs_transaction_cachep);
+	pmfs_transaction_cachep = NULL;
 }
 
 static void destroy_inodecache(void)
@@ -1291,12 +1285,12 @@ static void destroy_inodecache(void)
 	 * we destroy cache.
 	 */
 	rcu_barrier();
-	kmem_cache_destroy(duofs_inode_cachep);
+	kmem_cache_destroy(pmfs_inode_cachep);
 }
 
 static void destroy_rangenode_cache(void)
 {
-	kmem_cache_destroy(duofs_range_node_cachep);
+	kmem_cache_destroy(pmfs_range_node_cachep);
 }
 
 /*
@@ -1304,44 +1298,44 @@ static void destroy_rangenode_cache(void)
  * super block is never in a "dirty" state, so there's no need
  * for write_super.
  */
-static struct super_operations duofs_sops = {
-	.alloc_inode	= duofs_alloc_inode,
-	.destroy_inode	= duofs_destroy_inode,
-	.write_inode	= duofs_write_inode,
-	.dirty_inode	= duofs_dirty_inode,
-	.evict_inode	= duofs_evict_inode,
-	.put_super	= duofs_put_super,
-	.statfs		= duofs_statfs,
-	.remount_fs	= duofs_remount,
-	.show_options	= duofs_show_options,
+static struct super_operations pmfs_sops = {
+	.alloc_inode	= pmfs_alloc_inode,
+	.destroy_inode	= pmfs_destroy_inode,
+	.write_inode	= pmfs_write_inode,
+	.dirty_inode	= pmfs_dirty_inode,
+	.evict_inode	= pmfs_evict_inode,
+	.put_super	= pmfs_put_super,
+	.statfs		= pmfs_statfs,
+	.remount_fs	= pmfs_remount,
+	.show_options	= pmfs_show_options,
 };
 
-static struct dentry *duofs_mount(struct file_system_type *fs_type,
+static struct dentry *pmfs_mount(struct file_system_type *fs_type,
 				  int flags, const char *dev_name, void *data)
 {
-	return mount_bdev(fs_type, flags, dev_name, data, duofs_fill_super);
+	return mount_bdev(fs_type, flags, dev_name, data, pmfs_fill_super);
 }
 
-static struct file_system_type duofs_fs_type = {
+static struct file_system_type pmfs_fs_type = {
 	.owner		= THIS_MODULE,
 	.name		= "duofs",
-	.mount		= duofs_mount,
+	.mount		= pmfs_mount,
 	.kill_sb	= kill_block_super,
 };
 
-static struct inode *duofs_nfs_get_inode(struct super_block *sb,
+static struct inode *pmfs_nfs_get_inode(struct super_block *sb,
 					 u64 ino, u32 generation)
 {
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	struct inode *inode;
 
-	if (ino < DUOFS_ROOT_INO)
+	if (ino < PMFS_ROOT_INO)
 		return ERR_PTR(-ESTALE);
 
-	if ((ino >> DUOFS_INODE_BITS) > (sbi->s_inodes_count))
+	if ((ino >> PMFS_INODE_BITS) > (sbi->s_inodes_count))
 		return ERR_PTR(-ESTALE);
 
-	inode = duofs_iget(sb, ino);
+	inode = pmfs_iget(sb, ino);
 	if (IS_ERR(inode))
 		return ERR_CAST(inode);
 
@@ -1354,29 +1348,29 @@ static struct inode *duofs_nfs_get_inode(struct super_block *sb,
 	return inode;
 }
 
-static struct dentry *duofs_fh_to_dentry(struct super_block *sb,
+static struct dentry *pmfs_fh_to_dentry(struct super_block *sb,
 					 struct fid *fid, int fh_len,
 					 int fh_type)
 {
 	return generic_fh_to_dentry(sb, fid, fh_len, fh_type,
-				    duofs_nfs_get_inode);
+				    pmfs_nfs_get_inode);
 }
 
-static struct dentry *duofs_fh_to_parent(struct super_block *sb,
+static struct dentry *pmfs_fh_to_parent(struct super_block *sb,
 					 struct fid *fid, int fh_len,
 					 int fh_type)
 {
 	return generic_fh_to_parent(sb, fid, fh_len, fh_type,
-				    duofs_nfs_get_inode);
+				    pmfs_nfs_get_inode);
 }
 
-static const struct export_operations duofs_export_ops = {
-	.fh_to_dentry	= duofs_fh_to_dentry,
-	.fh_to_parent	= duofs_fh_to_parent,
-	.get_parent	= duofs_get_parent,
+static const struct export_operations pmfs_export_ops = {
+	.fh_to_dentry	= pmfs_fh_to_dentry,
+	.fh_to_parent	= pmfs_fh_to_parent,
+	.get_parent	= pmfs_get_parent,
 };
 
-static int __init init_duofs_fs(void)
+static int __init init_pmfs_fs(void)
 {
 	int rc = 0;
 
@@ -1392,7 +1386,7 @@ static int __init init_duofs_fs(void)
 	if (rc)
 		goto out2;
 
-	rc = register_filesystem(&duofs_fs_type);
+	rc = register_filesystem(&pmfs_fs_type);
 	if (rc)
 		goto out3;
 
@@ -1407,17 +1401,17 @@ out1:
 	return rc;
 }
 
-static void __exit exit_duofs_fs(void)
+static void __exit exit_pmfs_fs(void)
 {
-	unregister_filesystem(&duofs_fs_type);
+	unregister_filesystem(&pmfs_fs_type);
 	destroy_inodecache();
 	destroy_transaction_cache();
 	destroy_rangenode_cache();
 }
 
-MODULE_AUTHOR("Intel Corporation <linux-duofs@intel.com>");
+MODULE_AUTHOR("Intel Corporation <linux-pmfs@intel.com>");
 MODULE_DESCRIPTION("Persistent Memory File System");
 MODULE_LICENSE("GPL");
 
-module_init(init_duofs_fs)
-module_exit(exit_duofs_fs)
+module_init(init_pmfs_fs)
+module_exit(exit_pmfs_fs)

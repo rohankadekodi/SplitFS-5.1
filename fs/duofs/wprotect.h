@@ -1,7 +1,7 @@
 /*
  * BRIEF DESCRIPTION
  *
- * Memory protection definitions for the duofs filesystem.
+ * Memory protection definitions for the PMFS filesystem.
  *
  * Copyright 2012-2013 Intel Corporation
  * Copyright 2010-2011 Marco Stornelli <marco.stornelli@gmail.com>
@@ -14,54 +14,54 @@
 #define __WPROTECT_H
 
 #include <linux/fs.h>
-#include "duofs_def.h"
+#include "pmfs_def.h"
 
-/* duofs_memunlock_super() before calling! */
-static inline void duofs_sync_super(struct duofs_super_block *ps)
+/* pmfs_memunlock_super() before calling! */
+static inline void pmfs_sync_super(struct pmfs_super_block *ps)
 {
 	u16 crc = 0;
 
 	ps->s_wtime = cpu_to_le32(get_seconds());
 	ps->s_sum = 0;
 	crc = crc16(~0, (__u8 *)ps + sizeof(__le16),
-			DUOFS_SB_STATIC_SIZE(ps) - sizeof(__le16));
+			PMFS_SB_STATIC_SIZE(ps) - sizeof(__le16));
 	ps->s_sum = cpu_to_le16(crc);
 	/* Keep sync redundant super block */
-	memcpy((void *)ps + DUOFS_SB_SIZE, (void *)ps,
-		sizeof(struct duofs_super_block));
+	memcpy((void *)ps + PMFS_SB_SIZE, (void *)ps,
+		sizeof(struct pmfs_super_block));
 }
 
 #if 0
-/* duofs_memunlock_inode() before calling! */
-static inline void duofs_sync_inode(struct duofs_inode *pi)
+/* pmfs_memunlock_inode() before calling! */
+static inline void pmfs_sync_inode(struct pmfs_inode *pi)
 {
 	u16 crc = 0;
 
 	pi->i_sum = 0;
-	crc = crc16(~0, (__u8 *)pi + sizeof(__le16), DUOFS_INODE_SIZE -
+	crc = crc16(~0, (__u8 *)pi + sizeof(__le16), PMFS_INODE_SIZE -
 		    sizeof(__le16));
 	pi->i_sum = cpu_to_le16(crc);
 }
 #endif
 
-extern int duofs_writeable(void *vaddr, unsigned long size, int rw);
-extern int duofs_xip_mem_protect(struct super_block *sb,
+extern int pmfs_writeable(void *vaddr, unsigned long size, int rw);
+extern int pmfs_xip_mem_protect(struct super_block *sb,
 				 void *vaddr, unsigned long size, int rw);
 
-static inline int duofs_is_protected(struct super_block *sb)
+static inline int pmfs_is_protected(struct super_block *sb)
 {
-	struct duofs_sb_info *sbi = (struct duofs_sb_info *)sb->s_fs_info;
+	struct pmfs_sb_info *sbi = (struct pmfs_sb_info *)sb->s_fs_info;
 
-	return sbi->s_mount_opt & DUOFS_MOUNT_PROTECT;
+	return sbi->s_mount_opt & PMFS_MOUNT_PROTECT;
 }
 
-static inline int duofs_is_wprotected(struct super_block *sb)
+static inline int pmfs_is_wprotected(struct super_block *sb)
 {
-	return duofs_is_protected(sb);
+	return pmfs_is_protected(sb);
 }
 
 static inline void
-__duofs_memunlock_range(void *p, unsigned long len)
+__pmfs_memunlock_range(void *p, unsigned long len)
 {
 	/*
 	 * NOTE: Ideally we should lock all the kernel to be memory safe
@@ -70,69 +70,69 @@ __duofs_memunlock_range(void *p, unsigned long len)
 	 * the operations at fs level. We can't disable the interrupts
 	 * because we could have a deadlock in this path.
 	 */
-	duofs_writeable(p, len, 1);
+	pmfs_writeable(p, len, 1);
 }
 
 static inline void
-__duofs_memlock_range(void *p, unsigned long len)
+__pmfs_memlock_range(void *p, unsigned long len)
 {
-	duofs_writeable(p, len, 0);
+	pmfs_writeable(p, len, 0);
 }
 
-static inline void duofs_memunlock_range(struct super_block *sb, void *p,
+static inline void pmfs_memunlock_range(struct super_block *sb, void *p,
 					 unsigned long len)
 {
-	if (duofs_is_protected(sb))
-		__duofs_memunlock_range(p, len);
+	if (pmfs_is_protected(sb))
+		__pmfs_memunlock_range(p, len);
 }
 
-static inline void duofs_memlock_range(struct super_block *sb, void *p,
+static inline void pmfs_memlock_range(struct super_block *sb, void *p,
 				       unsigned long len)
 {
-	if (duofs_is_protected(sb))
-		__duofs_memlock_range(p, len);
+	if (pmfs_is_protected(sb))
+		__pmfs_memlock_range(p, len);
 }
 
-static inline void duofs_memunlock_super(struct super_block *sb,
-					 struct duofs_super_block *ps)
+static inline void pmfs_memunlock_super(struct super_block *sb,
+					 struct pmfs_super_block *ps)
 {
-	if (duofs_is_protected(sb))
-		__duofs_memunlock_range(ps, DUOFS_SB_SIZE);
+	if (pmfs_is_protected(sb))
+		__pmfs_memunlock_range(ps, PMFS_SB_SIZE);
 }
 
-static inline void duofs_memlock_super(struct super_block *sb,
-				       struct duofs_super_block *ps)
+static inline void pmfs_memlock_super(struct super_block *sb,
+				       struct pmfs_super_block *ps)
 {
-	duofs_sync_super(ps);
-	if (duofs_is_protected(sb))
-		__duofs_memlock_range(ps, DUOFS_SB_SIZE);
+	pmfs_sync_super(ps);
+	if (pmfs_is_protected(sb))
+		__pmfs_memlock_range(ps, PMFS_SB_SIZE);
 }
 
-static inline void duofs_memunlock_inode(struct super_block *sb,
-					 struct duofs_inode *pi)
+static inline void pmfs_memunlock_inode(struct super_block *sb,
+					 struct pmfs_inode *pi)
 {
-	if (duofs_is_protected(sb))
-		__duofs_memunlock_range(pi, DUOFS_SB_SIZE);
+	if (pmfs_is_protected(sb))
+		__pmfs_memunlock_range(pi, PMFS_SB_SIZE);
 }
 
-static inline void duofs_memlock_inode(struct super_block *sb,
-				       struct duofs_inode *pi)
+static inline void pmfs_memlock_inode(struct super_block *sb,
+				       struct pmfs_inode *pi)
 {
-	/* duofs_sync_inode(pi); */
-	if (duofs_is_protected(sb))
-		__duofs_memlock_range(pi, DUOFS_SB_SIZE);
+	/* pmfs_sync_inode(pi); */
+	if (pmfs_is_protected(sb))
+		__pmfs_memlock_range(pi, PMFS_SB_SIZE);
 }
 
-static inline void duofs_memunlock_block(struct super_block *sb, void *bp)
+static inline void pmfs_memunlock_block(struct super_block *sb, void *bp)
 {
-	if (duofs_is_protected(sb))
-		__duofs_memunlock_range(bp, sb->s_blocksize);
+	if (pmfs_is_protected(sb))
+		__pmfs_memunlock_range(bp, sb->s_blocksize);
 }
 
-static inline void duofs_memlock_block(struct super_block *sb, void *bp)
+static inline void pmfs_memlock_block(struct super_block *sb, void *bp)
 {
-	if (duofs_is_protected(sb))
-		__duofs_memlock_range(bp, sb->s_blocksize);
+	if (pmfs_is_protected(sb))
+		__pmfs_memlock_range(bp, sb->s_blocksize);
 }
 
 #endif

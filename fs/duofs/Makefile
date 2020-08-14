@@ -1,10 +1,10 @@
 #
-# Makefile for the linux duofs-filesystem routines.
+# Makefile for the linux pmfs-filesystem routines.
 #
 
 obj-$(CONFIG_DUOFS) += duofs.o
 
-duofs-y := bbuild.o balloc.o dir.o file.o inode.o namei.o super.o symlink.o ioctl.o duofs_stats.o journal.o xip.o wprotect.o
+duofs-y := bbuild.o balloc.o dir.o file.o inode.o namei.o super.o symlink.o ioctl.o pmfs_stats.o journal.o xip.o wprotect.o
 
 #CFLAGS_nvmm_perfmodel.o := -mhard-float -Og
 #CFLAGS_bbuild.o := -mhard-float -Og
@@ -16,7 +16,7 @@ duofs-y := bbuild.o balloc.o dir.o file.o inode.o namei.o super.o symlink.o ioct
 #CFLAGS_super.o := -mhard-float -Og
 #CFLAGS_symlink.o := -mhard-float -Og
 #CFLAGS_ioctl.o := -mhard-float -Og
-#CFLAGS_duofs_stats.o := -mhard-float -Og
+#CFLAGS_pmfs_stats.o := -mhard-float -Og
 #CFLAGS_journal.o := -mhard-float -Og
 #CFLAGS_xip.o := -mhard-float -Og
 #CFLAGS_wprotect.o := -mhard-float -Og

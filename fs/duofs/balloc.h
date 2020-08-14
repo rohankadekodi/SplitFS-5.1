@@ -1,5 +1,5 @@
-#ifndef __duofs_BALLOC_H
-#define __duofs_BALLOC_H
+#ifndef __PMFS_BALLOC_H
+#define __PMFS_BALLOC_H
 
 #include "inode.h"
 
@@ -8,8 +8,8 @@ struct free_list {
 	spinlock_t s_lock;
 	struct rb_root	unaligned_block_free_tree;
 	struct rb_root  huge_aligned_block_free_tree;
-	struct duofs_range_node *first_node_unaligned; // lowest address free range
-	struct duofs_range_node *first_node_huge_aligned; // lowest address free range
+	struct pmfs_range_node *first_node_unaligned; // lowest address free range
+	struct pmfs_range_node *first_node_huge_aligned; // lowest address free range
 
 	int		index; // Which CPU do I belong to?
 
@@ -41,9 +41,9 @@ struct free_list {
 };
 
 static inline
-struct free_list *duofs_get_free_list(struct super_block *sb, int cpu)
+struct free_list *pmfs_get_free_list(struct super_block *sb, int cpu)
 {
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 
 	return &sbi->free_lists[cpu];
 }
@@ -54,34 +54,34 @@ enum node_type {
 	NODE_DIR,
 };
 
-int duofs_alloc_block_free_lists(struct super_block *sb);
-struct duofs_range_node *duofs_alloc_inode_node(struct super_block *sb);
-void duofs_delete_free_lists(struct super_block *sb);
-struct duofs_range_node *duofs_alloc_dir_node(struct super_block *sb);
-struct vma_item *duofs_alloc_vma_item(struct super_block *sb);
-void duofs_free_range_node(struct duofs_range_node *node);
-void duofs_free_inode_node(struct duofs_range_node *node);
-void duofs_free_dir_node(struct duofs_range_node *bnode);
-void duofs_free_vma_item(struct super_block *sb,
+int pmfs_alloc_block_free_lists(struct super_block *sb);
+struct pmfs_range_node *pmfs_alloc_inode_node(struct super_block *sb);
+void pmfs_delete_free_lists(struct super_block *sb);
+struct pmfs_range_node *pmfs_alloc_dir_node(struct super_block *sb);
+struct vma_item *pmfs_alloc_vma_item(struct super_block *sb);
+void pmfs_free_range_node(struct pmfs_range_node *node);
+void pmfs_free_inode_node(struct pmfs_range_node *node);
+void pmfs_free_dir_node(struct pmfs_range_node *bnode);
+void pmfs_free_vma_item(struct super_block *sb,
 			struct vma_item *item);
-extern int duofs_find_range_node(struct rb_root *tree, unsigned long key,
+extern int pmfs_find_range_node(struct rb_root *tree, unsigned long key,
 				enum node_type type,
-				struct duofs_range_node **ret_node);
-int duofs_search_inodetree(struct duofs_sb_info *sbi,
-			  unsigned long ino, struct duofs_range_node **ret_node);
-int duofs_insert_inodetree(struct duofs_sb_info *sbi,
-			  struct duofs_range_node *new_node, int cpuid);
+				struct pmfs_range_node **ret_node);
+int pmfs_search_inodetree(struct pmfs_sb_info *sbi,
+			  unsigned long ino, struct pmfs_range_node **ret_node);
+int pmfs_insert_inodetree(struct pmfs_sb_info *sbi,
+			  struct pmfs_range_node *new_node, int cpuid);
 
-extern int duofs_insert_range_node(struct rb_root *tree,
-				  struct duofs_range_node *new_node,
+extern int pmfs_insert_range_node(struct rb_root *tree,
+				  struct pmfs_range_node *new_node,
 				  enum node_type type);
-void duofs_destroy_range_node_tree(struct super_block *sb,
+void pmfs_destroy_range_node_tree(struct super_block *sb,
 				  struct rb_root *tree);
-int duofs_insert_blocktree(struct rb_root *tree,
-			  struct duofs_range_node *new_node);
-int duofs_find_free_slot(struct rb_root *tree, unsigned long range_low,
-			unsigned long range_high, struct duofs_range_node **prev,
-			struct duofs_range_node **next);
+int pmfs_insert_blocktree(struct rb_root *tree,
+			  struct pmfs_range_node *new_node);
+int pmfs_find_free_slot(struct rb_root *tree, unsigned long range_low,
+			unsigned long range_high, struct pmfs_range_node **prev,
+			struct pmfs_range_node **next);
 
 
 #endif

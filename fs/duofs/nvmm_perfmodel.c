@@ -2,7 +2,7 @@
 #include <linux/kobject.h>
 #include <linux/cpufreq.h>
 #include <asm/fpu/api.h>
-#include "duofs_def.h"
+#include "pmfs_def.h"
 
 #define _MAX_INT    0x7ffffff
 

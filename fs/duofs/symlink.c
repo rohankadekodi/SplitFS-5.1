@@ -15,34 +15,34 @@
 
 #include <linux/fs.h>
 #include <linux/namei.h>
-#include "duofs.h"
+#include "pmfs.h"
 #include "inode.h"
 
-int duofs_block_symlink(struct inode *inode, const char *symname, int len)
+int pmfs_block_symlink(struct inode *inode, const char *symname, int len)
 {
 	struct super_block *sb = inode->i_sb;
 	u64 block;
 	char *blockp;
 	int err;
 
-	err = duofs_alloc_blocks_weak(NULL, inode, 0, 1,
+	err = pmfs_alloc_blocks_weak(NULL, inode, 0, 1,
 				false, ANY_CPU, 0);
 	if (err)
 		return err;
 
-	duofs_find_data_blocks(inode, 0, &block, 1);
-	blockp = duofs_get_block(sb, block);
+	pmfs_find_data_blocks(inode, 0, &block, 1);
+	blockp = pmfs_get_block(sb, block);
 
-	duofs_memunlock_block(sb, blockp);
+	pmfs_memunlock_block(sb, blockp);
 	memcpy(blockp, symname, len);
 	blockp[len] = '\0';
-	duofs_memlock_block(sb, blockp);
-	duofs_flush_buffer(blockp, len+1, false);
+	pmfs_memlock_block(sb, blockp);
+	pmfs_flush_buffer(blockp, len+1, false);
 	return 0;
 }
 
 /* FIXME: Temporary workaround */
-static int duofs_readlink_copy(char __user *buffer, int buflen, const char *link)
+static int pmfs_readlink_copy(char __user *buffer, int buflen, const char *link)
 {
 	int len = PTR_ERR(link);
 	if (IS_ERR(link))
@@ -57,32 +57,32 @@ out:
 	return len;
 }
 
-static int duofs_readlink(struct dentry *dentry, char __user *buffer, int buflen)
+static int pmfs_readlink(struct dentry *dentry, char __user *buffer, int buflen)
 {
 	struct inode *inode = dentry->d_inode;
 	struct super_block *sb = inode->i_sb;
 	u64 block;
 	char *blockp;
 
-	duofs_find_data_blocks(inode, 0, &block, 1);
-	blockp = duofs_get_block(sb, block);
-	return duofs_readlink_copy(buffer, buflen, blockp);
+	pmfs_find_data_blocks(inode, 0, &block, 1);
+	blockp = pmfs_get_block(sb, block);
+	return pmfs_readlink_copy(buffer, buflen, blockp);
 }
 
-static const char *duofs_get_link(struct dentry *dentry, struct inode *inode,
+static const char *pmfs_get_link(struct dentry *dentry, struct inode *inode,
 	struct delayed_call *done)
 {
 	struct super_block *sb = inode->i_sb;
 	u64 block;
 	char *blockp;
 
-	duofs_find_data_blocks(inode, 0, &block, 1);
-	blockp = duofs_get_block(sb, block);
+	pmfs_find_data_blocks(inode, 0, &block, 1);
+	blockp = pmfs_get_block(sb, block);
 	return blockp;
 }
 
-const struct inode_operations duofs_symlink_inode_operations = {
-	.readlink	= duofs_readlink,
-	.get_link	= duofs_get_link,
-	.setattr	= duofs_notify_change,
+const struct inode_operations pmfs_symlink_inode_operations = {
+	.readlink	= pmfs_readlink,
+	.get_link	= pmfs_get_link,
+	.setattr	= pmfs_notify_change,
 };

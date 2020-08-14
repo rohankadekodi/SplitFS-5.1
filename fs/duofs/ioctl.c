@@ -16,10 +16,10 @@
 #include <linux/sched.h>
 #include <linux/compat.h>
 #include <linux/mount.h>
-#include "duofs.h"
+#include "pmfs.h"
 #include "inode.h"
 
-#define	FS_DUOFS_FSYNC	0xBCD0000E
+#define	FS_PMFS_FSYNC	0xBCD0000E
 
 struct sync_range
 {
@@ -27,23 +27,23 @@ struct sync_range
 	size_t	length;
 };
 
-long duofs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+long pmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	struct address_space *mapping = filp->f_mapping;
 	struct inode    *inode = mapping->host;
-	struct duofs_inode *pi;
+	struct pmfs_inode *pi;
 	struct super_block *sb = inode->i_sb;
 	unsigned int flags;
 	int ret;
-	duofs_transaction_t *trans;
+	pmfs_transaction_t *trans;
 
-	pi = duofs_get_inode(sb, inode->i_ino);
+	pi = pmfs_get_inode(sb, inode->i_ino);
 	if (!pi)
 		return -EACCES;
 
 	switch (cmd) {
 	case FS_IOC_GETFLAGS:
-		flags = le32_to_cpu(pi->i_flags) & DUOFS_FL_USER_VISIBLE;
+		flags = le32_to_cpu(pi->i_flags) & PMFS_FL_USER_VISIBLE;
 		return put_user(flags, (int __user *)arg);
 	case FS_IOC_SETFLAGS: {
 		unsigned int oldflags;
@@ -80,18 +80,18 @@ long duofs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		flags = flags & FS_FL_USER_MODIFIABLE;
 		flags |= oldflags & ~FS_FL_USER_MODIFIABLE;
 		inode->i_ctime = current_time(inode);
-		trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES, duofs_get_cpuid(sb));
+		trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES);
 		if (IS_ERR(trans)) {
 			ret = PTR_ERR(trans);
 			goto out;
 		}
-		duofs_add_logentry(sb, trans, pi, MAX_DATA_PER_LENTRY, LE_DATA);
-		duofs_memunlock_inode(sb, pi);
+		pmfs_add_logentry(sb, trans, pi, MAX_DATA_PER_LENTRY, LE_DATA);
+		pmfs_memunlock_inode(sb, pi);
 		pi->i_flags = cpu_to_le32(flags);
 		pi->i_ctime = cpu_to_le32(inode->i_ctime.tv_sec);
-		duofs_set_inode_flags(inode, pi);
-		duofs_memlock_inode(sb, pi);
-		duofs_commit_transaction(sb, trans);
+		pmfs_set_inode_flags(inode, pi);
+		pmfs_memlock_inode(sb, pi);
+		pmfs_commit_transaction(sb, trans);
 out:
 		inode_unlock(inode);
 flags_out:
@@ -112,42 +112,42 @@ flags_out:
 			goto setversion_out;
 		}
 		inode_lock(inode);
-		trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES, duofs_get_cpuid(sb));
+		trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES);
 		if (IS_ERR(trans)) {
 			ret = PTR_ERR(trans);
 			goto out;
 		}
-		duofs_add_logentry(sb, trans, pi, sizeof(*pi), LE_DATA);
+		pmfs_add_logentry(sb, trans, pi, sizeof(*pi), LE_DATA);
 		inode->i_ctime = current_time(inode);
 		inode->i_generation = generation;
-		duofs_memunlock_inode(sb, pi);
+		pmfs_memunlock_inode(sb, pi);
 		pi->i_ctime = cpu_to_le32(inode->i_ctime.tv_sec);
 		pi->i_generation = cpu_to_le32(inode->i_generation);
-		duofs_memlock_inode(sb, pi);
-		duofs_commit_transaction(sb, trans);
+		pmfs_memlock_inode(sb, pi);
+		pmfs_commit_transaction(sb, trans);
 		inode_unlock(inode);
 setversion_out:
 		mnt_drop_write_file(filp);
 		return ret;
 	}
-	case FS_DUOFS_FSYNC: {
+	case FS_PMFS_FSYNC: {
 		struct sync_range packet;
 		copy_from_user(&packet, (void *)arg, sizeof(struct sync_range));
-		duofs_fsync(filp, packet.offset, packet.offset + packet.length, 1);
+		pmfs_fsync(filp, packet.offset, packet.offset + packet.length, 1);
 		return 0;
 	}
-	case DUOFS_PRINT_TIMING: {
-		duofs_print_timing_stats();
-		return 0;
-	}
-
-	case DUOFS_GET_AVAILABLE_HUGEPAGES: {
-		duofs_print_available_hugepages(sb);
+	case PMFS_PRINT_TIMING: {
+		pmfs_print_timing_stats();
 		return 0;
 	}
 
-	case DUOFS_CLEAR_STATS: {
-		duofs_clear_stats();
+	case PMFS_GET_AVAILABLE_HUGEPAGES: {
+		pmfs_print_available_hugepages(sb);
+		return 0;
+	}
+
+	case PMFS_CLEAR_STATS: {
+		pmfs_clear_stats();
 		return 0;
 	}
 	default:
@@ -156,7 +156,7 @@ setversion_out:
 }
 
 #ifdef CONFIG_COMPAT
-long duofs_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+long pmfs_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	switch (cmd) {
 	case FS_IOC32_GETFLAGS:
@@ -174,6 +174,6 @@ long duofs_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	default:
 		return -ENOIOCTLCMD;
 	}
-	return duofs_ioctl(file, cmd, (unsigned long)compat_ptr(arg));
+	return pmfs_ioctl(file, cmd, (unsigned long)compat_ptr(arg));
 }
 #endif

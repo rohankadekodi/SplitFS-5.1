@@ -65,15 +65,15 @@ void pmfs_error_mng(struct super_block *sb, const char *fmt, ...)
 {
 	va_list args;
 
-	printk("npmfs error: ");
+	printk("pmfs error: ");
 	va_start(args, fmt);
 	vprintk(fmt, args);
 	va_end(args);
 
 	if (test_opt(sb, ERRORS_PANIC))
-		panic("npmfs: panic from previous error\n");
+		panic("pmfs: panic from previous error\n");
 	if (test_opt(sb, ERRORS_RO)) {
-		printk(KERN_CRIT "npmfs err: remounting filesystem read-only");
+		printk(KERN_CRIT "pmfs err: remounting filesystem read-only");
 		sb->s_flags |= SB_RDONLY;
 	}
 }

@@ -24,13 +24,33 @@ const char *Timingstring[TIMING_NUM] =
 
 unsigned long long Timingstats[TIMING_NUM];
 u64 Countstats[TIMING_NUM];
+u64 IOstats[STATS_NUM];
+DEFINE_PER_CPU(u64[STATS_NUM], IOstats_percpu);
 
 atomic64_t fsync_pages = ATOMIC_INIT(0);
 
+void pmfs_get_IO_stats(void)
+{
+	int i;
+	int cpu;
+
+	for (i = 0; i < STATS_NUM; i++) {
+		IOstats[i] = 0;
+		for_each_possible_cpu(cpu)
+			IOstats[i] += per_cpu(IOstats_percpu[i], cpu);
+	}
+}
+
+
 void pmfs_print_IO_stats(void)
 {
+	pmfs_get_IO_stats();
 	printk("=========== PMFS I/O stats ===========\n");
 	printk("Fsync %ld pages\n", atomic64_read(&fsync_pages));
+	printk("Remote writes %llu bytes\n",  IOstats[remote_writes_bytes]);
+	printk("Local writes %llu bytes\n",  IOstats[local_writes_bytes]);
+	printk("Remote writes %llu bytes\n",  IOstats[remote_reads_bytes]);
+	printk("Local writes %llu bytes\n",  IOstats[remote_reads_bytes]);	       
 }
 
 void pmfs_print_timing_stats(void)

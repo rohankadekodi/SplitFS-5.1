@@ -28,11 +28,13 @@ do_xip_mapping_read(struct address_space *mapping,
 		    loff_t *ppos)
 {
 	struct inode *inode = mapping->host;
-	pgoff_t index, end_index;
+	struct super_block *sb = inode->i_sb;
+	pgoff_t index, end_index;	
 	unsigned long offset;
 	loff_t isize, pos;
 	size_t copied = 0, error = 0;
 	timing_t memcpy_time;
+	int cpuid = smp_processor_id() % 96;
 
 	pos = *ppos;
 	index = pos >> PAGE_SHIFT;
@@ -93,6 +95,20 @@ do_xip_mapping_read(struct address_space *mapping,
 		if (!zero) {
 			left = __copy_to_user(buf+copied, xip_mem+offset, nr);
 			// Rohan adding read delay	
+
+			if ((unsigned long) (xip_mem) + offset >= (unsigned long) PMFS_SB(sb)->virt_addr_2) {
+				if (cpuid < 24 || (cpuid >= 47 && cpuid < 72)) {
+					PMFS_STATS_ADD(remote_reads_bytes, nr);
+				} else {
+					PMFS_STATS_ADD(local_reads_bytes, nr);
+				}
+			} else {
+				if (cpuid >= 72 || (cpuid >= 24 && cpuid < 48)) {
+					PMFS_STATS_ADD(remote_reads_bytes, nr);
+				} else {
+					PMFS_STATS_ADD(local_reads_bytes, nr);
+				}
+			}
 		}
 		else
 			left = __clear_user(buf + copied, nr);
@@ -156,10 +172,25 @@ static inline void pmfs_flush_edge_cachelines(loff_t pos, ssize_t len,
 		pmfs_flush_buffer(start_addr + len, 1, false);
 }
 
-static inline size_t memcpy_to_nvmm(char *kmem, loff_t offset,
+static inline size_t memcpy_to_nvmm(struct super_block *sb, char *kmem, loff_t offset,
 	const char __user *buf, size_t bytes)
 {
 	size_t copied;
+	int cpuid = smp_processor_id() % 96;
+
+	if ((unsigned long) kmem >= (unsigned long) PMFS_SB(sb)->virt_addr_2) {
+		if (cpuid < 24 || (cpuid >= 47 && cpuid < 72)) {
+			PMFS_STATS_ADD(remote_writes_bytes, bytes);
+		} else {
+			PMFS_STATS_ADD(local_writes_bytes, bytes);
+		}
+	} else {
+		if (cpuid >= 72 || (cpuid >= 24 && cpuid < 48)) {
+			PMFS_STATS_ADD(remote_writes_bytes, bytes);
+		} else {
+			PMFS_STATS_ADD(local_writes_bytes, bytes);
+		}
+	}
 	
 	if (support_clwb) {
 		copied = bytes - __copy_from_user(kmem + offset, buf, bytes);
@@ -212,7 +243,7 @@ __pmfs_xip_file_write(struct address_space *mapping, const char __user *buf,
 
 		//START_TIMING(memcpy_to_pmem_t, memcpy_to_pmem_time);
 
-		copied = memcpy_to_nvmm((char *)xmem, offset, buf, bytes);
+		copied = memcpy_to_nvmm(sb, (char *)xmem, offset, buf, bytes);
 
 		//END_TIMING(memcpy_to_pmem_t, memcpy_to_pmem_time);
 		//PRINT_TIMING();
@@ -274,7 +305,7 @@ static ssize_t pmfs_file_write_fast(struct super_block *sb, struct inode *inode,
 
 	PMFS_START_TIMING(memcpy_w_t, memcpy_time);
 	pmfs_xip_mem_protect(sb, xmem + offset, count, 1);
-	copied = memcpy_to_nvmm((char *)xmem, offset, buf, count);
+	copied = memcpy_to_nvmm(sb, (char *)xmem, offset, buf, count);
 	pmfs_xip_mem_protect(sb, xmem + offset, count, 0);
 	PMFS_END_TIMING(memcpy_w_t, memcpy_time);
 

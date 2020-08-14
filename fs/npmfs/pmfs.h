@@ -189,9 +189,21 @@ enum timing_category {
 	TIMING_NUM,
 };
 
+enum stats_category {
+        remote_writes_bytes,
+	local_writes_bytes,
+	remote_reads_bytes,
+	local_reads_bytes,
+		     
+	/* Sentinel */
+	STATS_NUM,
+};
+
 extern const char *Timingstring[TIMING_NUM];
 extern unsigned long long Timingstats[TIMING_NUM];
 extern u64 Countstats[TIMING_NUM];
+extern u64 IOstats[STATS_NUM];
+DECLARE_PER_CPU(u64[STATS_NUM], IOstats_percpu);
 
 extern int measure_timing;
 extern int support_clwb;
@@ -214,6 +226,9 @@ typedef struct timespec timing_t;
 	} \
 	Countstats[name]++; \
 	}
+
+#define PMFS_STATS_ADD(name, value)		\
+	{__this_cpu_add(IOstats_percpu[name], value); }
 
 /* Function Prototypes */
 extern void pmfs_error_mng(struct super_block *sb, const char *fmt, ...);

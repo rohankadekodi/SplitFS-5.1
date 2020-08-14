@@ -889,57 +889,6 @@ static int pmfs_find_and_alloc_blocks(struct inode *inode,
 	return blocks_found;
 }
 
-/* OOM err return with xip file fault handlers doesn't mean anything.
- * It would just cause the OS to go an unnecessary killing spree !
- */
-static int __pmfs_xip_file_fault(struct vm_area_struct *vma,
-				  struct vm_fault *vmf)
-{
-	struct address_space *mapping = vma->vm_file->f_mapping;
-	struct inode *inode = mapping->host;
-	pgoff_t size;
-	void *xip_mem;
-	unsigned long xip_pfn;
-	int err;
-
-	size = (i_size_read(inode) + PAGE_SIZE - 1) >> PAGE_SHIFT;
-	if (vmf->pgoff >= size) {
-		pmfs_dbg("[%s:%d] pgoff >= size(SIGBUS). vm_start(0x%lx),"
-			" vm_end(0x%lx), pgoff(0x%lx), VA(%lx), size 0x%lx\n",
-			__func__, __LINE__, vma->vm_start, vma->vm_end,
-			vmf->pgoff, (unsigned long)vmf->address, size);
-		return VM_FAULT_SIGBUS;
-	}
-
-	err = pmfs_get_xip_mem(mapping, vmf->pgoff, 1, 1, &xip_mem, &xip_pfn);
-	if (unlikely(err < 0)) {
-		pmfs_dbg("[%s:%d] get_xip_mem failed(OOM). vm_start(0x%lx),"
-			" vm_end(0x%lx), pgoff(0x%lx), VA(%lx)\n",
-			__func__, __LINE__, vma->vm_start, vma->vm_end,
-			vmf->pgoff, (unsigned long)vmf->address);
-		return VM_FAULT_SIGBUS;
-	}
-
-	pmfs_dbg_mmapv("[%s:%d] vm_start(0x%lx), vm_end(0x%lx), pgoff(0x%lx), "
-			"BlockSz(0x%lx), VA(0x%lx)->PA(0x%lx)\n", __func__,
-			__LINE__, vma->vm_start, vma->vm_end, vmf->pgoff,
-			PAGE_SIZE, (unsigned long)vmf->address,
-			(unsigned long)xip_pfn << PAGE_SHIFT);
-
-	err = vmf_insert_mixed(vma, (unsigned long)vmf->address,
-			pfn_to_pfn_t(xip_pfn));
-
-	if (err == -ENOMEM)
-		return VM_FAULT_SIGBUS;
-	/*
-	 * err == -EBUSY is fine, we've raced against another thread
-	 * that faulted-in the same page
-	 */
-	if (err != -EBUSY)
-		BUG_ON(err);
-	return VM_FAULT_NOPAGE;
-}
-
 int pmfs_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 	unsigned int flags, struct iomap *iomap, bool taking_lock)
 {
@@ -1108,23 +1057,6 @@ static vm_fault_t pmfs_dax_fault(struct vm_fault *vmf)
 		  __func__, inode->i_ino, vmf->pgoff, vmf->flags);
 
 	return pmfs_xip_huge_file_fault(vmf, PE_SIZE_PTE);
-}
-
-static int pmfs_xip_file_fault(struct vm_fault *vmf)
-{
-	int ret = 0;
-	timing_t fault_time;
-
-	/*
-	pmfs_dbg("%s: got a 4K fault\n", __func__);
-	return pmfs_xip_huge_file_fault(vmf, PE_SIZE_PTE);
-	*/
-	PMFS_START_TIMING(mmap_fault_t, fault_time);
-	rcu_read_lock();
-	ret = __pmfs_xip_file_fault(vmf->vma, vmf);
-	rcu_read_unlock();
-	PMFS_END_TIMING(mmap_fault_t, fault_time);
-	return ret;
 }
 
 static inline int pmfs_rbtree_compare_vma(struct vma_item *curr,

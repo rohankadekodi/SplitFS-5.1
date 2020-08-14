@@ -1165,7 +1165,7 @@ static struct dentry *nova_mount(struct file_system_type *fs_type,
 
 static struct file_system_type nova_fs_type = {
 	.owner		= THIS_MODULE,
-	.name		= "NOVA",
+	.name		= "NNOVA",
 	.mount		= nova_mount,
 	.kill_sb	= kill_block_super,
 };

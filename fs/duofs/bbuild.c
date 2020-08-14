@@ -66,7 +66,7 @@ static void pmfs_clear_datablock_inode(struct super_block *sb)
 	pmfs_transaction_t *trans;
 
 	/* 2 log entry for inode */
-	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES);
+	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES, pmfs_get_cpuid(sb));
 	if (IS_ERR(trans))
 		return;
 	pmfs_add_logentry(sb, trans, pi, MAX_DATA_PER_LENTRY, LE_DATA);
@@ -246,7 +246,7 @@ void pmfs_save_blocknode_mappings(struct super_block *sb)
 		pmfs_range_node_lowhigh) - 1) >> sb->s_blocksize_bits) + 1;
 
 	/* 2 log entry for inode, 2 lentry for super-block */
-	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES + MAX_SB_LENTRIES);
+	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES + MAX_SB_LENTRIES, 0);
 	if (IS_ERR(trans))
 		return;
 

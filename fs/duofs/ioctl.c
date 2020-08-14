@@ -80,7 +80,7 @@ long pmfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		flags = flags & FS_FL_USER_MODIFIABLE;
 		flags |= oldflags & ~FS_FL_USER_MODIFIABLE;
 		inode->i_ctime = current_time(inode);
-		trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES);
+		trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES, pmfs_get_cpuid(sb));
 		if (IS_ERR(trans)) {
 			ret = PTR_ERR(trans);
 			goto out;
@@ -112,7 +112,7 @@ flags_out:
 			goto setversion_out;
 		}
 		inode_lock(inode);
-		trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES);
+		trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES, pmfs_get_cpuid(sb));
 		if (IS_ERR(trans)) {
 			ret = PTR_ERR(trans);
 			goto out;

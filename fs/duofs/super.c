@@ -414,7 +414,7 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 				    unsigned long size_2)
 {
 	unsigned long blocksize;
-	u64 journal_meta_start, journal_data_start, inode_table_start;
+	u64 journal_data_start, inode_table_start;
 	struct pmfs_inode *root_i;
 	struct pmfs_super_block *super;
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
@@ -422,6 +422,8 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	unsigned long blocknr;
 	int idx;
 	unsigned long num_blocks_1;
+	u64 *journal_meta_start;
+	u64 journal_start;
 
 	pmfs_info("creating an empty pmfs of size %lu\n", size + size_2);
 
@@ -471,10 +473,18 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 		return ERR_PTR(-EINVAL);
 	}
 
-	journal_meta_start = sizeof(struct pmfs_super_block);
-	journal_meta_start = (journal_meta_start + CACHELINE_SIZE - 1) &
-		~(CACHELINE_SIZE - 1);
-	inode_table_start = journal_meta_start + sizeof(pmfs_journal_t);
+	journal_meta_start = kmalloc(sizeof(u64) * sbi->cpus, GFP_ATOMIC);
+	journal_start = sizeof(struct pmfs_super_block);
+
+	for (idx = 0; idx < sbi->cpus; idx++) {
+		journal_meta_start[idx] = journal_start;
+		journal_meta_start[idx] = (journal_meta_start[idx] + CACHELINE_SIZE - 1) &
+			~(CACHELINE_SIZE - 1);
+		pmfs_dbg_verbose("journal_meta_start[%d] = 0x%x\n", idx, journal_meta_start[idx]);
+		journal_start = journal_meta_start[idx] + sizeof(pmfs_journal_t);
+	}
+
+	inode_table_start = journal_start;
 	inode_table_start = (inode_table_start + CACHELINE_SIZE - 1) &
 		~(CACHELINE_SIZE - 1);
 
@@ -491,7 +501,7 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	//	~(blocksize - 1);
 
 	pmfs_dbg_verbose("journal meta start %llx data start 0x%llx, "
-		"journal size 0x%x, inode_table 0x%llx\n", journal_meta_start,
+		"journal size 0x%x, inode_table 0x%llx\n", journal_meta_start[0],
 		journal_data_start, sbi->jsize, inode_table_start);
 	pmfs_dbg_verbose("max file name len %d\n", (unsigned int)PMFS_NAME_LEN);
 
@@ -503,10 +513,10 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	super->s_size = cpu_to_le64(size);
 	super->s_blocksize = cpu_to_le32(blocksize);
 	super->s_magic = cpu_to_le16(PMFS_SUPER_MAGIC);
-	super->s_journal_offset = cpu_to_le64(journal_meta_start);
+	super->s_journal_offset = cpu_to_le64(journal_meta_start[0]);
 	super->s_inode_table_offset = cpu_to_le64(inode_table_start);
 
-	pmfs_init_blockmap(sb, journal_data_start + sbi->jsize);
+	pmfs_init_blockmap(sb, journal_data_start + (sbi->jsize * sbi->cpus));
 	pmfs_memlock_range(sb, super, journal_data_start);
 
 	if (pmfs_journal_hard_init(sb, journal_data_start, sbi->jsize) < 0) {

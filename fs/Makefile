@@ -117,6 +117,7 @@ obj-$(CONFIG_XFS_FS)		+= xfs/
 obj-$(CONFIG_9P_FS)		+= 9p/
 obj-$(CONFIG_NOVA_FS)		+= nova/
 obj-$(CONFIG_PMFS)		+= pmfs/
+obj-$(CONFIG_NPMFS)		+= npmfs/
 obj-$(CONFIG_DUOFS)		+= duofs/
 obj-$(CONFIG_AFS_FS)		+= afs/
 obj-$(CONFIG_NILFS2_FS)		+= nilfs2/

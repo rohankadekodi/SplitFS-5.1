@@ -1046,7 +1046,7 @@ int nova_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 			second_virt_start = (unsigned long) sbi->virt_addr_2;
 			diff_between_devs = second_virt_start - first_virt_end;
 			byte_offset_in_dax = byte_offset_in_dax - diff_between_devs;
-			iomap->offset = (sector_t)byte_offset_in_dax >> 9;
+			iomap->offset = (sector_t)byte_offset_in_dax;
 		}
 	}
 

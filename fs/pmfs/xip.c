@@ -480,8 +480,8 @@ static int __pmfs_xip_file_fault(struct vm_area_struct *vma,
 	 * err == -EBUSY is fine, we've raced against another thread
 	 * that faulted-in the same page
 	 */
-	if (err != -EBUSY)
-		BUG_ON(err);
+	//if (err != -EBUSY)
+	//	BUG_ON(err);
 	return VM_FAULT_NOPAGE;
 }
 

@@ -70,6 +70,7 @@ source "fs/duofs/Kconfig"
 source "fs/npmfs/Kconfig"
 source "fs/pmfs/Kconfig"
 source "fs/nova/Kconfig"
+source "fs/nnova/Kconfig"
 # Selected by DAX drivers that do not expect filesystem DAX to support
 # get_user_pages() of DAX mappings. I.e. "limited" indicates no support
 # for fork() of processes with MAP_SHARED mappings or support for

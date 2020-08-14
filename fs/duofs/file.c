@@ -21,11 +21,11 @@
 #include <linux/uaccess.h>
 #include <linux/falloc.h>
 #include <asm/mman.h>
-#include "duofs.h"
+#include "pmfs.h"
 #include "xip.h"
 #include "inode.h"
 
-static inline int duofs_can_set_blocksize_hint(struct duofs_inode *pi,
+static inline int pmfs_can_set_blocksize_hint(struct pmfs_inode *pi,
 					       loff_t new_size)
 {
 	/* Currently, we don't deallocate data blocks till the file is deleted.
@@ -35,52 +35,52 @@ static inline int duofs_can_set_blocksize_hint(struct duofs_inode *pi,
 	return 1;
 }
 
-int duofs_set_blocksize_hint(struct super_block *sb, struct duofs_inode *pi,
+int pmfs_set_blocksize_hint(struct super_block *sb, struct pmfs_inode *pi,
 		loff_t new_size)
 {
 	unsigned short block_type;
 
-	if (!duofs_can_set_blocksize_hint(pi, new_size))
+	if (!pmfs_can_set_blocksize_hint(pi, new_size))
 		return 0;
 
 	if (new_size >= 0x40000000) {   /* 1G */
-		block_type = DUOFS_BLOCK_TYPE_1G;
+		block_type = PMFS_BLOCK_TYPE_1G;
 		goto hint_set;
 	}
 
 	if (new_size >= 0x200000) {     /* 2M */
-		block_type = DUOFS_BLOCK_TYPE_2M;
+		block_type = PMFS_BLOCK_TYPE_2M;
 		goto hint_set;
 	}
 
 	/* defaulting to 4K */
-	block_type = DUOFS_BLOCK_TYPE_4K;
+	block_type = PMFS_BLOCK_TYPE_4K;
 
 hint_set:
-	duofs_dbg_verbose(
+	pmfs_dbg_verbose(
 		"Hint: new_size 0x%llx, i_size 0x%llx, root 0x%llx\n",
 		new_size, pi->i_size, le64_to_cpu(pi->root));
-	duofs_dbg_verbose("Setting the hint to 0x%x\n", block_type);
-	duofs_memunlock_inode(sb, pi);
+	pmfs_dbg_verbose("Setting the hint to 0x%x\n", block_type);
+	pmfs_memunlock_inode(sb, pi);
 	pi->i_blk_type = block_type;
-	duofs_memlock_inode(sb, pi);
+	pmfs_memlock_inode(sb, pi);
 	return 0;
 }
 
-static long duofs_fallocate(struct file *file, int mode, loff_t offset,
+static long pmfs_fallocate(struct file *file, int mode, loff_t offset,
 			    loff_t len)
 {
 	struct inode *inode = file->f_path.dentry->d_inode;
 	struct super_block *sb = inode->i_sb;
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	long ret = 0;
 	unsigned long blocknr, blockoff;
 	int num_blocks, blocksize_mask;
-	struct duofs_inode *pi;
-	duofs_transaction_t *trans;
+	struct pmfs_inode *pi;
+	pmfs_transaction_t *trans;
 	loff_t new_size;
 	struct process_numa *proc_numa;
-	int cpu = duofs_get_cpuid(sb);
+	int cpu = pmfs_get_cpuid(sb);
 
 	/* We only support the FALLOC_FL_KEEP_SIZE mode */
 	if (mode & ~FALLOC_FL_KEEP_SIZE)
@@ -98,7 +98,7 @@ static long duofs_fallocate(struct file *file, int mode, loff_t offset,
 			goto out;
 	}
 
-	pi = duofs_get_inode(sb, inode->i_ino);
+	pi = pmfs_get_inode(sb, inode->i_ino);
 	if (!pi) {
 		ret = -EACCES;
 		goto out;
@@ -114,30 +114,30 @@ static long duofs_fallocate(struct file *file, int mode, loff_t offset,
 		}
 	}
 
-	trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES +
-				      MAX_METABLOCK_LENTRIES, duofs_get_cpuid(sb));
+	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES +
+			MAX_METABLOCK_LENTRIES);
 	if (IS_ERR(trans)) {
 		ret = PTR_ERR(trans);
 		goto out;
 	}
-	duofs_add_logentry(sb, trans, pi, MAX_DATA_PER_LENTRY, LE_DATA);
+	pmfs_add_logentry(sb, trans, pi, MAX_DATA_PER_LENTRY, LE_DATA);
 
 	/* Set the block size hint */
-	//duofs_set_blocksize_hint(sb, pi, new_size);
+	//pmfs_set_blocksize_hint(sb, pi, new_size);
 
 	blocksize_mask = sb->s_blocksize - 1;
 	blocknr = offset >> sb->s_blocksize_bits;
 	blockoff = offset & blocksize_mask;
 	num_blocks = (blockoff + len + blocksize_mask) >> sb->s_blocksize_bits;
-	ret = duofs_alloc_blocks_weak(trans, inode, blocknr,
+	ret = pmfs_alloc_blocks_weak(trans, inode, blocknr,
 				num_blocks, true, ANY_CPU,
 				0);
 
 	inode->i_mtime = inode->i_ctime = current_time(inode);
 
-	duofs_memunlock_inode(sb, pi);
+	pmfs_memunlock_inode(sb, pi);
 	if (ret || (mode & FALLOC_FL_KEEP_SIZE)) {
-		pi->i_flags |= cpu_to_le32(DUOFS_EOFBLOCKS_FL);
+		pi->i_flags |= cpu_to_le32(PMFS_EOFBLOCKS_FL);
 	}
 
 	if (!(mode & FALLOC_FL_KEEP_SIZE) && new_size > inode->i_size) {
@@ -146,16 +146,16 @@ static long duofs_fallocate(struct file *file, int mode, loff_t offset,
 	}
 	pi->i_mtime = cpu_to_le32(inode->i_mtime.tv_sec);
 	pi->i_ctime = cpu_to_le32(inode->i_ctime.tv_sec);
-	duofs_memlock_inode(sb, pi);
+	pmfs_memlock_inode(sb, pi);
 
-	duofs_commit_transaction(sb, trans);
+	pmfs_commit_transaction(sb, trans);
 
 out:
 	inode_unlock(inode);
 	return ret;
 }
 
-static loff_t duofs_llseek(struct file *file, loff_t offset, int origin)
+static loff_t pmfs_llseek(struct file *file, loff_t offset, int origin)
 {
 	struct inode *inode = file->f_path.dentry->d_inode;
 	int retval;
@@ -166,14 +166,14 @@ static loff_t duofs_llseek(struct file *file, loff_t offset, int origin)
 	inode_lock(inode);
 	switch (origin) {
 	case SEEK_DATA:
-		retval = duofs_find_region(inode, &offset, 0);
+		retval = pmfs_find_region(inode, &offset, 0);
 		if (retval) {
 			inode_unlock(inode);
 			return retval;
 		}
 		break;
 	case SEEK_HOLE:
-		retval = duofs_find_region(inode, &offset, 1);
+		retval = pmfs_find_region(inode, &offset, 1);
 		if (retval) {
 			inode_unlock(inode);
 			return retval;
@@ -197,10 +197,10 @@ static loff_t duofs_llseek(struct file *file, loff_t offset, int origin)
 }
 
 /* This function is called by both msync() and fsync().
- * TODO: Check if we can avoid calling duofs_flush_buffer() for fsync. We use
+ * TODO: Check if we can avoid calling pmfs_flush_buffer() for fsync. We use
  * movnti to write data to files, so we may want to avoid doing unnecessary
- * duofs_flush_buffer() on fsync() */
-int duofs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
+ * pmfs_flush_buffer() on fsync() */
+int pmfs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 {
 	/* Sync from start to end[inclusive] */
 	struct address_space *mapping = file->f_mapping;
@@ -208,7 +208,7 @@ int duofs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 	loff_t isize;
 	timing_t fsync_time;
 
-	DUOFS_START_TIMING(fsync_t, fsync_time);
+	PMFS_START_TIMING(fsync_t, fsync_time);
 	/* if the file is not mmap'ed, there is no need to do clflushes */
 	if (mapping_mapped(mapping) == 0)
 		goto persist;
@@ -221,9 +221,9 @@ int duofs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 		end = isize;
 	if (!isize || (start >= end))
 	{
-		duofs_dbg_verbose("[%s:%d] : (ERR) isize(%llx), start(%llx),"
+		pmfs_dbg_verbose("[%s:%d] : (ERR) isize(%llx), start(%llx),"
 			" end(%llx)\n", __func__, __LINE__, isize, start, end);
-		DUOFS_END_TIMING(fsync_t, fsync_time);
+		PMFS_END_TIMING(fsync_t, fsync_time);
 		return -ENODATA;
 	}
 
@@ -244,15 +244,15 @@ int duofs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 		if (nr_flush_bytes > (end - start))
 			nr_flush_bytes = end - start;
 
-		duofs_find_data_blocks(inode, (sector_t)pgoff, &block, 1);
+		pmfs_find_data_blocks(inode, (sector_t)pgoff, &block, 1);
 		if (block) {
-			xip_mem = duofs_get_block(inode->i_sb, block);
+			xip_mem = pmfs_get_block(inode->i_sb, block);
 			/* flush the range */
 			atomic64_inc(&fsync_pages);
-			duofs_flush_buffer(xip_mem + offset, nr_flush_bytes, 0);
+			pmfs_flush_buffer(xip_mem + offset, nr_flush_bytes, 0);
 		} else {
 			/* sparse files could have such holes */
-			duofs_dbg_verbose("[%s:%d] : start(%llx), end(%llx),"
+			pmfs_dbg_verbose("[%s:%d] : start(%llx), end(%llx),"
 			" pgoff(%lx)\n", __func__, __LINE__, start, end, pgoff);
 			break;
 		}
@@ -262,12 +262,12 @@ int duofs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 persist:
 	PERSISTENT_MARK();
 	PERSISTENT_BARRIER();
-	DUOFS_END_TIMING(fsync_t, fsync_time);
+	PMFS_END_TIMING(fsync_t, fsync_time);
 	return 0;
 }
 
 /* This callback is called when a file is closed */
-static int duofs_flush(struct file *file, fl_owner_t id)
+static int pmfs_flush(struct file *file, fl_owner_t id)
 {
 	int ret = 0;
 	/* if the file was opened for writing, make it persistent.
@@ -282,7 +282,7 @@ static int duofs_flush(struct file *file, fl_owner_t id)
 
 #if 0
 static unsigned long
-duofs_get_unmapped_area(struct file *file, unsigned long addr,
+pmfs_get_unmapped_area(struct file *file, unsigned long addr,
 			unsigned long len, unsigned long pgoff,
 			unsigned long flags)
 {
@@ -290,15 +290,15 @@ duofs_get_unmapped_area(struct file *file, unsigned long addr,
 	struct vm_area_struct *vma;
 	struct mm_struct *mm = current->mm;
 	struct inode *inode = file->f_mapping->host;
-	struct duofs_inode *pi = duofs_get_inode(inode->i_sb, inode->i_ino);
+	struct pmfs_inode *pi = pmfs_get_inode(inode->i_sb, inode->i_ino);
 	struct vm_unmapped_area_info info;
 
 	if (len > TASK_SIZE)
 		return -ENOMEM;
 
-	if (pi->i_blk_type == duofs_BLOCK_TYPE_1G)
+	if (pi->i_blk_type == PMFS_BLOCK_TYPE_1G)
 		align_size = PUD_SIZE;
-	else if (pi->i_blk_type == duofs_BLOCK_TYPE_2M)
+	else if (pi->i_blk_type == PMFS_BLOCK_TYPE_2M)
 		align_size = PMD_SIZE;
 	else
 		align_size = PAGE_SIZE;
@@ -334,29 +334,29 @@ duofs_get_unmapped_area(struct file *file, unsigned long addr,
 }
 #endif
 
-const struct file_operations duofs_xip_file_operations = {
-	.llseek			= duofs_llseek,
-	.read			= duofs_xip_file_read,
-	.write			= duofs_xip_file_write,
+const struct file_operations pmfs_xip_file_operations = {
+	.llseek			= pmfs_llseek,
+	.read			= pmfs_xip_file_read,
+	.write			= pmfs_xip_file_write,
 //	.aio_read		= xip_file_aio_read,
 //	.aio_write		= xip_file_aio_write,
 //	.read_iter		= generic_file_read_iter,
 //	.write_iter		= generic_file_write_iter,
-	.mmap			= duofs_xip_file_mmap,
+	.mmap			= pmfs_xip_file_mmap,
  	.get_unmapped_area      = thp_get_unmapped_area,
 	.open			= generic_file_open,
-	.fsync			= duofs_fsync,
-	.flush			= duofs_flush,
-//	.get_unmapped_area	= duofs_get_unmapped_area,
-	.unlocked_ioctl		= duofs_ioctl,
-	.fallocate		= duofs_fallocate,
+	.fsync			= pmfs_fsync,
+	.flush			= pmfs_flush,
+//	.get_unmapped_area	= pmfs_get_unmapped_area,
+	.unlocked_ioctl		= pmfs_ioctl,
+	.fallocate		= pmfs_fallocate,
 #ifdef CONFIG_COMPAT
-	.compat_ioctl		= duofs_compat_ioctl,
+	.compat_ioctl		= pmfs_compat_ioctl,
 #endif
 };
 
-const struct inode_operations duofs_file_inode_operations = {
-	.setattr	= duofs_notify_change,
-	.getattr	= duofs_getattr,
+const struct inode_operations pmfs_file_inode_operations = {
+	.setattr	= pmfs_notify_change,
+	.getattr	= pmfs_getattr,
 	.get_acl	= NULL,
 };

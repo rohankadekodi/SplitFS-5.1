@@ -1,7 +1,7 @@
 /*
  * BRIEF DESCRIPTION
  *
- * duofs test module.
+ * pmfs test module.
  *
  * Copyright 2012-2013 Intel Corporation
  * Copyright 2009-2011 Marco Stornelli <marco.stornelli@gmail.com>
@@ -16,17 +16,17 @@
 #include <linux/version.h>
 #include <linux/init.h>
 #include <linux/fs.h>
-#include "duofs.h"
+#include "pmfs.h"
 #include "inode.h"
 
-int __init test_duofs_write(void)
+int __init test_pmfs_write(void)
 {
-	struct duofs_super_block *psb;
+	struct pmfs_super_block *psb;
 
-	psb = get_duofs_super();
+	psb = get_pmfs_super();
 	if (!psb) {
 		printk(KERN_ERR
-		       "%s: duofs super block not found (not mounted?)\n",
+		       "%s: PMFS super block not found (not mounted?)\n",
 		       __func__);
 		return 1;
 	}
@@ -41,11 +41,11 @@ int __init test_duofs_write(void)
 	return 0;
 }
 
-void test_duofs_write_cleanup(void)
+void test_pmfs_write_cleanup(void)
 {
 }
 
 /* Module information */
 MODULE_LICENSE("GPL");
-module_init(test_duofs_write);
-module_exit(test_duofs_write_cleanup);
+module_init(test_pmfs_write);
+module_exit(test_pmfs_write_cleanup);

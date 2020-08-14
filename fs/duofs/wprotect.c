@@ -17,7 +17,7 @@
 #include <linux/fs.h>
 #include <linux/mm.h>
 #include <linux/io.h>
-#include "duofs.h"
+#include "pmfs.h"
 #include "inode.h"
 
 static inline void wprotect_disable(void)
@@ -39,10 +39,10 @@ static inline void wprotect_enable(void)
 }
 
 /* FIXME: Assumes that we are always called in the right order.
- * duofs_writeable(vaddr, size, 1);
- * duofs_writeable(vaddr, size, 0);
+ * pmfs_writeable(vaddr, size, 1);
+ * pmfs_writeable(vaddr, size, 0);
  */
-int duofs_writeable(void *vaddr, unsigned long size, int rw)
+int pmfs_writeable(void *vaddr, unsigned long size, int rw)
 {
 	static unsigned long flags;
 	if (rw) {
@@ -55,10 +55,10 @@ int duofs_writeable(void *vaddr, unsigned long size, int rw)
 	return 0;
 }
 
-int duofs_xip_mem_protect(struct super_block *sb, void *vaddr,
+int pmfs_xip_mem_protect(struct super_block *sb, void *vaddr,
 			  unsigned long size, int rw)
 {
-	if (!duofs_is_wprotected(sb))
+	if (!pmfs_is_wprotected(sb))
 		return 0;
-	return duofs_writeable(vaddr, size, rw);
+	return pmfs_writeable(vaddr, size, rw);
 }

@@ -1,5 +1,5 @@
 /*
- * duofs emulated persistence. This file contains code to 
+ * PMFS emulated persistence. This file contains code to 
  * handle data blocks of various sizes efficiently.
  *
  * Persistent Memory File System
@@ -22,7 +22,7 @@
 #include <linux/fs.h>
 #include <linux/bitops.h>
 #include <linux/slab.h>
-#include "duofs.h"
+#include "pmfs.h"
 #include "inode.h"
 
 #define PAGES_PER_2MB 512
@@ -39,8 +39,8 @@ struct scan_bitmap {
 	unsigned long *bitmap_1G;
 };
 
-void duofs_init_header(struct super_block *sb,
-		      struct duofs_inode_info_header *sih, u16 i_mode)
+void pmfs_init_header(struct super_block *sb,
+		      struct pmfs_inode_info_header *sih, u16 i_mode)
 {
 	sih->i_size = 0;
 	sih->ino = 0;
@@ -50,52 +50,52 @@ void duofs_init_header(struct super_block *sb,
 	sih->num_vmas = 0;
 	sih->i_mode = i_mode;
 	sih->i_flags = 0;
-	sih->i_blk_type = DUOFS_DEFAULT_BLOCK_TYPE;
+	sih->i_blk_type = PMFS_DEFAULT_BLOCK_TYPE;
 	sih->last_dentry = NULL;
 }
 
-static inline int get_block_cpuid(struct duofs_sb_info *sbi,
+static inline int get_block_cpuid(struct pmfs_sb_info *sbi,
 	unsigned long blocknr)
 {
 	return blocknr / sbi->per_list_blocks;
 }
 
-static void duofs_clear_datablock_inode(struct super_block *sb)
+static void pmfs_clear_datablock_inode(struct super_block *sb)
 {
-	struct duofs_inode *pi =  duofs_get_inode(sb, DUOFS_BLOCKNODE_IN0);
-	duofs_transaction_t *trans;
+	struct pmfs_inode *pi =  pmfs_get_inode(sb, PMFS_BLOCKNODE_IN0);
+	pmfs_transaction_t *trans;
 
 	/* 2 log entry for inode */
-	trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES, duofs_get_cpuid(sb));
+	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES);
 	if (IS_ERR(trans))
 		return;
-	duofs_add_logentry(sb, trans, pi, MAX_DATA_PER_LENTRY, LE_DATA);
+	pmfs_add_logentry(sb, trans, pi, MAX_DATA_PER_LENTRY, LE_DATA);
 
-	duofs_memunlock_inode(sb, pi);
+	pmfs_memunlock_inode(sb, pi);
 	memset(pi, 0, MAX_DATA_PER_LENTRY);
-	duofs_memlock_inode(sb, pi);
+	pmfs_memlock_inode(sb, pi);
 
 	/* commit the transaction */
-	duofs_commit_transaction(sb, trans);
+	pmfs_commit_transaction(sb, trans);
 }
 
-static void duofs_destroy_blocknode_tree(struct super_block *sb, int cpu)
+static void pmfs_destroy_blocknode_tree(struct super_block *sb, int cpu)
 {
 	struct free_list *free_list;
 
-	free_list = duofs_get_free_list(sb, cpu);
-	duofs_destroy_range_node_tree(sb, &free_list->unaligned_block_free_tree);
-	duofs_destroy_range_node_tree(sb, &free_list->huge_aligned_block_free_tree);
+	free_list = pmfs_get_free_list(sb, cpu);
+	pmfs_destroy_range_node_tree(sb, &free_list->unaligned_block_free_tree);
+	pmfs_destroy_range_node_tree(sb, &free_list->huge_aligned_block_free_tree);
 }
 
-static void duofs_init_blockmap_from_inode(struct super_block *sb)
+static void pmfs_init_blockmap_from_inode(struct super_block *sb)
 {
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
-	struct duofs_inode *pi =  duofs_get_inode(sb, DUOFS_BLOCKNODE_IN0);
-	struct duofs_range_node_lowhigh *p = NULL;
-	struct duofs_range_node *blknode;
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
+	struct pmfs_inode *pi =  pmfs_get_inode(sb, PMFS_BLOCKNODE_IN0);
+	struct pmfs_range_node_lowhigh *p = NULL;
+	struct pmfs_range_node *blknode;
 	struct free_list *free_list;
-	size_t size = sizeof(struct duofs_range_node_lowhigh);
+	size_t size = sizeof(struct pmfs_range_node_lowhigh);
 	u64 curr_p;
 	u64 cpuid;
 	unsigned long index;
@@ -112,65 +112,65 @@ static void duofs_init_blockmap_from_inode(struct super_block *sb)
 		if (index == 0) {
 			/* Find and get new data block */
 			blocknr = i >> 8; /* 256 Entries in a block */
-			__duofs_find_data_blocks(sb, pi, blocknr, &bp, 1);
-			p = (struct duofs_range_node_lowhigh *)duofs_get_block(sb, bp);
+			__pmfs_find_data_blocks(sb, pi, blocknr, &bp, 1);
+			p = (struct pmfs_range_node_lowhigh *)pmfs_get_block(sb, bp);
 		}
-		DUOFS_ASSERT(p);
-		blknode = duofs_alloc_blocknode(sb);
+		PMFS_ASSERT(p);
+		blknode = pmfs_alloc_blocknode(sb);
 		if (blknode == NULL)
-                	DUOFS_ASSERT(0);
+                	PMFS_ASSERT(0);
 		blknode->range_low = le64_to_cpu(p[index].range_low);
 		blknode->range_high = le64_to_cpu(p[index].range_high);
 
 		cpuid = get_block_cpuid(sbi, blknode->range_low);
-		free_list = duofs_get_free_list(sb, cpuid);
+		free_list = pmfs_get_free_list(sb, cpuid);
 
 		if (IS_BLOCK_2MB_ALIGNED(blknode->range_low) &&
 		    (blknode->range_high - blknode->range_low + 1 == PAGES_PER_2MB)) {
-			ret = duofs_insert_blocktree(&free_list->huge_aligned_block_free_tree,
+			ret = pmfs_insert_blocktree(&free_list->huge_aligned_block_free_tree,
 						    blknode);
 			free_list->num_blocknode_huge_aligned++;
 			if (free_list->num_blocknode_huge_aligned == 1)
 				free_list->first_node_huge_aligned = blknode;
 		} else {
-			ret = duofs_insert_blocktree(&free_list->unaligned_block_free_tree,
+			ret = pmfs_insert_blocktree(&free_list->unaligned_block_free_tree,
 						    blknode);
 			free_list->num_blocknode_unaligned++;
 			if (free_list->num_blocknode_unaligned == 1)
 				free_list->first_node_unaligned = blknode;
 		}
 		if (ret) {
-			duofs_err(sb, "%s failed\n", __func__);
-			duofs_free_blocknode(blknode);
-			DUOFS_ASSERT(0);
-			duofs_destroy_blocknode_tree(sb, cpuid);
+			pmfs_err(sb, "%s failed\n", __func__);
+			pmfs_free_blocknode(blknode);
+			PMFS_ASSERT(0);
+			pmfs_destroy_blocknode_tree(sb, cpuid);
 			return;
 		}
 		free_list->num_free_blocks +=
 			blknode->range_high - blknode->range_low + 1;
-		curr_p += sizeof(struct duofs_range_node_lowhigh);
+		curr_p += sizeof(struct pmfs_range_node_lowhigh);
 		//list_add_tail(&blknode->link, &sbi->block_inuse_head);
 	}
 }
 
-static void duofs_destroy_inode_trees(struct super_block *sb)
+static void pmfs_destroy_inode_trees(struct super_block *sb)
 {
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	struct inode_map *inode_map;
 	int i;
 
 	for (i = 0; i < sbi->cpus; i++) {
 		inode_map = &sbi->inode_maps[i];
-		duofs_destroy_range_node_tree(sb,
+		pmfs_destroy_range_node_tree(sb,
 					     &inode_map->inode_inuse_tree);
 	}
 }
 
-static bool duofs_can_skip_full_scan(struct super_block *sb)
+static bool pmfs_can_skip_full_scan(struct super_block *sb)
 {
-	struct duofs_inode *pi =  duofs_get_inode(sb, DUOFS_BLOCKNODE_IN0);
-	struct duofs_super_block *super = duofs_get_super(sb);
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_inode *pi =  pmfs_get_inode(sb, PMFS_BLOCKNODE_IN0);
+	struct pmfs_super_block *super = pmfs_get_super(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	__le64 root;
 	unsigned int height, btype;
 	unsigned long last_blocknr;
@@ -186,77 +186,77 @@ static bool duofs_can_skip_full_scan(struct super_block *sb)
 	sbi->s_inodes_used_count = le32_to_cpu(super->s_inodes_used_count);
 	sbi->s_free_inode_hint = le32_to_cpu(super->s_free_inode_hint);
 
-	duofs_init_blockmap_from_inode(sb);
+	pmfs_init_blockmap_from_inode(sb);
 
 	root = pi->root;
 	height = pi->height;
 	btype = pi->i_blk_type;
 	/* pi->i_size can not be zero */
 	last_blocknr = (le64_to_cpu(pi->i_size) - 1) >>
-					duofs_inode_blk_shift(pi);
+					pmfs_inode_blk_shift(pi);
 
 	/* Clearing the datablock inode */
-	duofs_clear_datablock_inode(sb);
+	pmfs_clear_datablock_inode(sb);
 
-	duofs_free_inode_subtree(sb, root, height, btype, last_blocknr);
+	pmfs_free_inode_subtree(sb, root, height, btype, last_blocknr);
 
 	return true;
 }
 
 
-static int duofs_allocate_datablock_block_inode(duofs_transaction_t *trans,
-	struct super_block *sb, struct duofs_inode *pi, unsigned long num_blocks)
+static int pmfs_allocate_datablock_block_inode(pmfs_transaction_t *trans,
+	struct super_block *sb, struct pmfs_inode *pi, unsigned long num_blocks)
 {
 	int errval;
 
 #if 0
 
-	duofs_memunlock_inode(sb, pi);
+	pmfs_memunlock_inode(sb, pi);
 	pi->i_mode = 0;
 	pi->i_links_count = cpu_to_le16(1);
-	pi->i_blk_type = duofs_BLOCK_TYPE_4K;
+	pi->i_blk_type = PMFS_BLOCK_TYPE_4K;
 	pi->i_flags = 0;
 	pi->height = 0;
 	pi->i_dtime = 0;
 	pi->i_size = cpu_to_le64(num_blocks << sb->s_blocksize_bits);
-	duofs_memlock_inode(sb, pi);
+	pmfs_memlock_inode(sb, pi);
 
-	errval = __duofs_alloc_blocks_wrapper(trans, sb, pi, 0,
+	errval = __pmfs_alloc_blocks_wrapper(trans, sb, pi, 0,
 					     num_blocks, false, 0);
 #endif
 	return errval;
 }
 
-void duofs_save_blocknode_mappings(struct super_block *sb)
+void pmfs_save_blocknode_mappings(struct super_block *sb)
 {
 #if 0
 	unsigned long num_blocks, blocknr;
-	struct duofs_inode *pi =  duofs_get_inode(sb, duofs_BLOCKNODE_IN0);
-	struct duofs_blocknode_lowhigh *p;
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_inode *pi =  pmfs_get_inode(sb, PMFS_BLOCKNODE_IN0);
+	struct pmfs_blocknode_lowhigh *p;
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	struct list_head *head = &(sbi->block_inuse_head);
-	struct duofs_blocknode *i;
-	struct duofs_super_block *super;
-	duofs_transaction_t *trans;
+	struct pmfs_blocknode *i;
+	struct pmfs_super_block *super;
+	pmfs_transaction_t *trans;
 	u64 bp;
 	int j, k;
 	int errval;
 
 	num_blocks = ((sbi->num_blocknode_allocated * sizeof(struct
-		duofs_range_node_lowhigh) - 1) >> sb->s_blocksize_bits) + 1;
+		pmfs_range_node_lowhigh) - 1) >> sb->s_blocksize_bits) + 1;
 
 	/* 2 log entry for inode, 2 lentry for super-block */
-	trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES + MAX_SB_LENTRIES, 0);
+	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES + MAX_SB_LENTRIES);
 	if (IS_ERR(trans))
 		return;
 
-	duofs_add_logentry(sb, trans, pi, MAX_DATA_PER_LENTRY, LE_DATA);
+	pmfs_add_logentry(sb, trans, pi, MAX_DATA_PER_LENTRY, LE_DATA);
 
-	errval = duofs_allocate_datablock_block_inode(trans, sb, pi, num_blocks);
+	errval = pmfs_allocate_datablock_block_inode(trans, sb, pi, num_blocks);
 
 	if (errval != 0) {
-		duofs_dbg("Error saving the blocknode mappings: %d\n", errval);
-		duofs_abort_transaction(sb, trans);
+		pmfs_dbg("Error saving the blocknode mappings: %d\n", errval);
+		pmfs_abort_transaction(sb, trans);
 		return;
 	}
 
@@ -267,9 +267,9 @@ void duofs_save_blocknode_mappings(struct super_block *sb)
 		blocknr = k >> 8;
 		if (j == 0) {
 			/* Find, get and unlock new data block */
-			__duofs_find_data_blocks(sb, pi, blocknr, &bp, 1);
-			p = duofs_get_block(sb, bp);
-			duofs_memunlock_block(sb, p);
+			__pmfs_find_data_blocks(sb, pi, blocknr, &bp, 1);
+			p = pmfs_get_block(sb, bp);
+			pmfs_memunlock_block(sb, p);
 		}
 		p[j].block_low = cpu_to_le64(i->block_low);
 		p[j].block_high = cpu_to_le64(i->block_high);
@@ -278,8 +278,8 @@ void duofs_save_blocknode_mappings(struct super_block *sb)
 		if (j == 256) {
 			j = 0;
 			/* Lock the data block */
-			duofs_memlock_block(sb, p);
-			duofs_flush_buffer(p, 4096, false);
+			pmfs_memlock_block(sb, p);
+			pmfs_flush_buffer(p, 4096, false);
 		}
 
 		k++;
@@ -287,19 +287,19 @@ void duofs_save_blocknode_mappings(struct super_block *sb)
 
 	/* Lock the block */
 	if (j) {
-		duofs_flush_buffer(p, j << 4, false);
-		duofs_memlock_block(sb, p);
+		pmfs_flush_buffer(p, j << 4, false);
+		pmfs_memlock_block(sb, p);
 	}
 
 	/* 
 	 * save the total allocated blocknode mappings 
 	 * in super block
 	 */
-	super = duofs_get_super(sb);
-	duofs_add_logentry(sb, trans, &super->s_wtime,
-			duofs_FAST_MOUNT_FIELD_SIZE, LE_DATA);
+	super = pmfs_get_super(sb);
+	pmfs_add_logentry(sb, trans, &super->s_wtime,
+			PMFS_FAST_MOUNT_FIELD_SIZE, LE_DATA);
 
-	duofs_memunlock_range(sb, &super->s_wtime, duofs_FAST_MOUNT_FIELD_SIZE);
+	pmfs_memunlock_range(sb, &super->s_wtime, PMFS_FAST_MOUNT_FIELD_SIZE);
 
 	super->s_wtime = cpu_to_le32(get_seconds());
 	super->s_num_blocknode_allocated = 
@@ -310,13 +310,13 @@ void duofs_save_blocknode_mappings(struct super_block *sb)
 	super->s_inodes_used_count = cpu_to_le32(sbi->s_inodes_used_count);
 	super->s_free_inode_hint = cpu_to_le32(sbi->s_free_inode_hint);
 
-	duofs_memlock_range(sb, &super->s_wtime, duofs_FAST_MOUNT_FIELD_SIZE);
+	pmfs_memlock_range(sb, &super->s_wtime, PMFS_FAST_MOUNT_FIELD_SIZE);
 	/* commit the transaction */
-	duofs_commit_transaction(sb, trans);
+	pmfs_commit_transaction(sb, trans);
 #endif
 }
 
-static void duofs_inode_crawl_recursive(struct super_block *sb,
+static void pmfs_inode_crawl_recursive(struct super_block *sb,
 				struct scan_bitmap *bm, unsigned long block,
 				u32 height, u8 btype)
 {
@@ -325,9 +325,9 @@ static void duofs_inode_crawl_recursive(struct super_block *sb,
 
 	if (height == 0) {
 		/* This is the data block */
-		if (btype == DUOFS_BLOCK_TYPE_4K) {
+		if (btype == PMFS_BLOCK_TYPE_4K) {
 			set_bit(block >> PAGE_SHIFT, bm->bitmap_4k);
-		} else if (btype == DUOFS_BLOCK_TYPE_2M) {
+		} else if (btype == PMFS_BLOCK_TYPE_2M) {
 			set_bit(block >> PAGE_SHIFT_2M, bm->bitmap_2M);
 		} else {
 			set_bit(block >> PAGE_SHIFT_1G, bm->bitmap_1G);
@@ -335,47 +335,47 @@ static void duofs_inode_crawl_recursive(struct super_block *sb,
 		return;
 	}
 
-	node = duofs_get_block(sb, block);
+	node = pmfs_get_block(sb, block);
 	set_bit(block >> PAGE_SHIFT, bm->bitmap_4k);
 	for (i = 0; i < (1 << META_BLK_SHIFT); i++) {
 		if (node[i] == 0)
 			continue;
-		duofs_inode_crawl_recursive(sb, bm,
+		pmfs_inode_crawl_recursive(sb, bm,
 			le64_to_cpu(node[i]), height - 1, btype);
 	}
 }
 
-static inline void duofs_inode_crawl(struct super_block *sb,
-				struct scan_bitmap *bm, struct duofs_inode *pi)
+static inline void pmfs_inode_crawl(struct super_block *sb,
+				struct scan_bitmap *bm, struct pmfs_inode *pi)
 {
 	if (pi->root == 0)
 		return;
-	duofs_inode_crawl_recursive(sb, bm, le64_to_cpu(pi->root), pi->height,
+	pmfs_inode_crawl_recursive(sb, bm, le64_to_cpu(pi->root), pi->height,
 					pi->i_blk_type);
 }
 
-static void duofs_inode_table_crawl_recursive(struct super_block *sb,
+static void pmfs_inode_table_crawl_recursive(struct super_block *sb,
 				struct scan_bitmap *bm, unsigned long block,
 				u32 height, u32 btype)
 {
 	__le64 *node;
 	unsigned int i;
-	struct duofs_inode *pi;
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_inode *pi;
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	
-	node = duofs_get_block(sb, block);
+	node = pmfs_get_block(sb, block);
 
 	if (height == 0) {
 		unsigned int inodes_per_block = INODES_PER_BLOCK(btype);
-		if (likely(btype == DUOFS_BLOCK_TYPE_2M))
+		if (likely(btype == PMFS_BLOCK_TYPE_2M))
 			set_bit(block >> PAGE_SHIFT_2M, bm->bitmap_2M);
 		else
 			set_bit(block >> PAGE_SHIFT, bm->bitmap_4k);
 
 		sbi->s_inodes_count += inodes_per_block;
 		for (i = 0; i < inodes_per_block; i++) {
-			pi = (struct duofs_inode *)((void *)node +
-                                                        DUOFS_INODE_SIZE * i);
+			pi = (struct pmfs_inode *)((void *)node +
+                                                        PMFS_INODE_SIZE * i);
 			if (le16_to_cpu(pi->i_links_count) == 0 &&
                         	(le16_to_cpu(pi->i_mode) == 0 ||
                          	le32_to_cpu(pi->i_dtime))) {
@@ -383,7 +383,7 @@ static void duofs_inode_table_crawl_recursive(struct super_block *sb,
 					continue;
 			}
 			sbi->s_inodes_used_count++;
-			duofs_inode_crawl(sb, bm, pi);
+			pmfs_inode_crawl(sb, bm, pi);
 		}
 		return;
 	}
@@ -392,7 +392,7 @@ static void duofs_inode_table_crawl_recursive(struct super_block *sb,
 	for (i = 0; i < (1 << META_BLK_SHIFT); i++) {
 		if (node[i] == 0)
 			continue;
-		duofs_inode_table_crawl_recursive(sb, bm,
+		pmfs_inode_table_crawl_recursive(sb, bm,
 			le64_to_cpu(node[i]), height - 1, btype);
 	}
 }

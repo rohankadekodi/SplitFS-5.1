@@ -1,5 +1,5 @@
 /*
- * duofs emulated persistence. This file contains code to 
+ * PMFS emulated persistence. This file contains code to 
  * handle data blocks of various sizes efficiently.
  *
  * Persistent Memory File System
@@ -21,7 +21,7 @@
 
 #include <linux/fs.h>
 #include <linux/bitops.h>
-#include "duofs.h"
+#include "pmfs.h"
 #include "inode.h"
 
 #define PAGES_PER_2MB 512
@@ -31,9 +31,9 @@
 #define IS_DATABLOCKS_2MB_ALIGNED(numblocks)	\
 	(!(num_blocks & PAGES_PER_2MB_MASK))
 
-int duofs_alloc_block_free_lists(struct super_block *sb)
+int pmfs_alloc_block_free_lists(struct super_block *sb)
 {
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	struct free_list *free_list;
 	int i;
 
@@ -44,7 +44,7 @@ int duofs_alloc_block_free_lists(struct super_block *sb)
 		return -ENOMEM;
 
 	for (i = 0; i < sbi->cpus; i++) {
-		free_list = duofs_get_free_list(sb, i);
+		free_list = pmfs_get_free_list(sb, i);
 		free_list->unaligned_block_free_tree = RB_ROOT;
 		free_list->huge_aligned_block_free_tree = RB_ROOT;
 		spin_lock_init(&free_list->s_lock);
@@ -56,10 +56,10 @@ int duofs_alloc_block_free_lists(struct super_block *sb)
 
 // Initialize a free list.  Each CPU gets an equal share of the block space to
 // manage.
-static void duofs_init_free_list(struct super_block *sb,
+static void pmfs_init_free_list(struct super_block *sb,
 	struct free_list *free_list, int index)
 {
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	unsigned long per_list_blocks;
 	int second_node_cpuid = 0;
 	unsigned long start_block;
@@ -92,7 +92,7 @@ static void duofs_init_free_list(struct super_block *sb,
 
 	if (sbi->num_numa_nodes == 2) {
 		if (index < second_node_cpuid && free_list->block_start >= sbi->block_start[1]) {
-			duofs_dbg("%s: Wrong NUMA setting: CPU id = %d, free_list->block_start = %lu",
+			pmfs_dbg("%s: Wrong NUMA setting: CPU id = %d, free_list->block_start = %lu",
 				 __func__, index, free_list->block_start);
 		}
 
@@ -113,9 +113,9 @@ static void duofs_init_free_list(struct super_block *sb,
 		free_list->block_start += sbi->head_reserved_blocks;
 }
 
-void duofs_delete_free_lists(struct super_block *sb)
+void pmfs_delete_free_lists(struct super_block *sb)
 {
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 
 	/* Each tree is freed in save_blocknode_mappings */
 	kfree(sbi->free_lists);
@@ -124,7 +124,7 @@ void duofs_delete_free_lists(struct super_block *sb)
 
 static void swap_free_lists(struct super_block *sb, int first_list,
 			    int second_list) {
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	struct free_list temp_free_list;
 
 	memcpy(&temp_free_list, &sbi->free_lists[first_list], sizeof(struct free_list));
@@ -132,12 +132,12 @@ static void swap_free_lists(struct super_block *sb, int first_list,
 	memcpy(&sbi->free_lists[second_list], &temp_free_list, sizeof(struct free_list));
 }
 
-void duofs_init_blockmap(struct super_block *sb, unsigned long init_used_size)
+void pmfs_init_blockmap(struct super_block *sb, unsigned long init_used_size)
 {
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	struct rb_root *unaligned_tree;
 	struct rb_root *huge_aligned_tree;
-	struct duofs_range_node *blknode;
+	struct pmfs_range_node *blknode;
 	struct free_list *free_list;
 	int i, j;
 	int ret;
@@ -151,15 +151,15 @@ void duofs_init_blockmap(struct super_block *sb, unsigned long init_used_size)
 
 	sbi->head_reserved_blocks = num_used_block;
 
-	duofs_dbg_verbose("%s: sbi->head_reserved_blocks = %lu\n", __func__,
+	pmfs_dbg_verbose("%s: sbi->head_reserved_blocks = %lu\n", __func__,
 			 sbi->head_reserved_blocks);
 
 	sbi->per_list_blocks = sbi->num_blocks / sbi->cpus;
 	for (i = 0; i < sbi->cpus; i++) {
-		free_list = duofs_get_free_list(sb, i);
+		free_list = pmfs_get_free_list(sb, i);
 		unaligned_tree = &(free_list->unaligned_block_free_tree);
 		huge_aligned_tree = &(free_list->huge_aligned_block_free_tree);
-		duofs_init_free_list(sb, free_list, i);
+		pmfs_init_free_list(sb, free_list, i);
 
 		free_list->num_free_blocks = free_list->block_end -
 			free_list->block_start + 1;
@@ -178,15 +178,15 @@ void duofs_init_blockmap(struct super_block *sb, unsigned long init_used_size)
 		}
 
 		if (unaligned_end != unaligned_start) {
-			blknode = duofs_alloc_blocknode(sb);
+			blknode = pmfs_alloc_blocknode(sb);
 			if (blknode == NULL)
-				DUOFS_ASSERT(0);
+				PMFS_ASSERT(0);
 			blknode->range_low = unaligned_start;
 			blknode->range_high = unaligned_end - 1;
-			ret = duofs_insert_blocktree(unaligned_tree, blknode);
+			ret = pmfs_insert_blocktree(unaligned_tree, blknode);
 			if (ret) {
-				duofs_err(sb, "%s failed\n", __func__);
-				duofs_free_blocknode(blknode);
+				pmfs_err(sb, "%s failed\n", __func__);
+				pmfs_free_blocknode(blknode);
 				return;
 			}
 			free_list->first_node_unaligned = blknode;
@@ -201,15 +201,15 @@ void duofs_init_blockmap(struct super_block *sb, unsigned long init_used_size)
 		}
 
 		if (unaligned_end != unaligned_start) {
-			blknode = duofs_alloc_blocknode(sb);
+			blknode = pmfs_alloc_blocknode(sb);
 			if (blknode == NULL)
-				DUOFS_ASSERT(0);
+				PMFS_ASSERT(0);
 			blknode->range_low = unaligned_start;
 			blknode->range_high = unaligned_end;
-			ret = duofs_insert_blocktree(unaligned_tree, blknode);
+			ret = pmfs_insert_blocktree(unaligned_tree, blknode);
 			if (ret) {
-				duofs_err(sb, "%s failed\n", __func__);
-				duofs_free_blocknode(blknode);
+				pmfs_err(sb, "%s failed\n", __func__);
+				pmfs_free_blocknode(blknode);
 				return;
 			}
 			if (free_list->first_node_unaligned == NULL)
@@ -219,28 +219,28 @@ void duofs_init_blockmap(struct super_block *sb, unsigned long init_used_size)
 		}
 
 		num_hugepages = (aligned_end - aligned_start + 1) / PAGES_PER_2MB;
-		duofs_dbg_verbose("%s: number of huge pages in list %d = %lu\n",
+		pmfs_dbg_verbose("%s: number of huge pages in list %d = %lu\n",
 				 __func__, i, num_hugepages);
 
 		blknode = NULL;
 		for (j = aligned_start; j < aligned_end; j += PAGES_PER_2MB) {
-			blknode = duofs_alloc_blocknode(sb);
+			blknode = pmfs_alloc_blocknode(sb);
 			if (blknode == NULL)
-				DUOFS_ASSERT(0);
+				PMFS_ASSERT(0);
 			blknode->range_low = j;
 			blknode->range_high = j + PAGES_PER_2MB - 1;
 
 			if (blknode->range_low < free_list->block_start ||
 			    blknode->range_high > free_list->block_end) {
-				duofs_err(sb, "%s failed\n", __func__);
-				duofs_free_blocknode(blknode);
+				pmfs_err(sb, "%s failed\n", __func__);
+				pmfs_free_blocknode(blknode);
 				return;
 			}
 
-			ret = duofs_insert_blocktree(huge_aligned_tree, blknode);
+			ret = pmfs_insert_blocktree(huge_aligned_tree, blknode);
 			if (ret) {
-				duofs_err(sb, "%s failed\n", __func__);
-				duofs_free_blocknode(blknode);
+				pmfs_err(sb, "%s failed\n", __func__);
+				pmfs_free_blocknode(blknode);
 				return;
 			}
 			if (j == aligned_start) {
@@ -250,7 +250,7 @@ void duofs_init_blockmap(struct super_block *sb, unsigned long init_used_size)
 		}
 
 		if (free_list->first_node_huge_aligned == NULL) {
-			duofs_err(sb, "%s failed\n", __func__);
+			pmfs_err(sb, "%s failed\n", __func__);
 			return;
 		}
 
@@ -269,8 +269,8 @@ void duofs_init_blockmap(struct super_block *sb, unsigned long init_used_size)
 	}
 
 	for (i = 0; i < sbi->cpus; i++) {
-		free_list = duofs_get_free_list(sb, i);
-		duofs_dbg("%s: free list %d: block start %lu, end %lu, "
+		free_list = pmfs_get_free_list(sb, i);
+		pmfs_dbg("%s: free list %d: block start %lu, end %lu, "
 			 "%lu free blocks. num_aligned_nodes = %lu, "
 			 "num_unaligned_nodes = %lu\n",
 			 __func__, i,
@@ -282,7 +282,7 @@ void duofs_init_blockmap(struct super_block *sb, unsigned long init_used_size)
 	}
 }
 
-static inline int duofs_rbtree_compare_rangenode(struct duofs_range_node *curr,
+static inline int pmfs_rbtree_compare_rangenode(struct pmfs_range_node *curr,
 						unsigned long key, enum node_type type)
 {
 	if (type == NODE_DIR) {
@@ -302,10 +302,10 @@ static inline int duofs_rbtree_compare_rangenode(struct duofs_range_node *curr,
 	return 0;
 }
 
-int duofs_find_range_node(struct rb_root *tree, unsigned long key,
-			 enum node_type type, struct duofs_range_node **ret_node)
+int pmfs_find_range_node(struct rb_root *tree, unsigned long key,
+			 enum node_type type, struct pmfs_range_node **ret_node)
 {
-	struct duofs_range_node *curr = NULL;
+	struct pmfs_range_node *curr = NULL;
 	struct rb_node *temp;
 	int compVal;
 	int ret = 0;
@@ -313,8 +313,8 @@ int duofs_find_range_node(struct rb_root *tree, unsigned long key,
 	temp = tree->rb_node;
 
 	while (temp) {
-		curr = container_of(temp, struct duofs_range_node, node);
-		compVal = duofs_rbtree_compare_rangenode(curr, key, type);
+		curr = container_of(temp, struct pmfs_range_node, node);
+		compVal = pmfs_rbtree_compare_rangenode(curr, key, type);
 
 		if (compVal == -1) {
 			temp = temp->rb_left;
@@ -330,10 +330,10 @@ int duofs_find_range_node(struct rb_root *tree, unsigned long key,
 	return ret;
 }
 
-int duofs_insert_range_node(struct rb_root *tree,
-			   struct duofs_range_node *new_node, enum node_type type)
+int pmfs_insert_range_node(struct rb_root *tree,
+			   struct pmfs_range_node *new_node, enum node_type type)
 {
-	struct duofs_range_node *curr;
+	struct pmfs_range_node *curr;
 	struct rb_node **temp, *parent;
 	int compVal;
 
@@ -341,8 +341,8 @@ int duofs_insert_range_node(struct rb_root *tree,
 	parent = NULL;
 
 	while (*temp) {
-		curr = container_of(*temp, struct duofs_range_node, node);
-		compVal = duofs_rbtree_compare_rangenode(curr,
+		curr = container_of(*temp, struct pmfs_range_node, node);
+		compVal = pmfs_rbtree_compare_rangenode(curr,
 							new_node->range_low, type);
 		parent = *temp;
 
@@ -351,7 +351,7 @@ int duofs_insert_range_node(struct rb_root *tree,
 		} else if (compVal == 1) {
 			temp = &((*temp)->rb_right);
 		} else {
-			duofs_dbg("%s: entry %lu - %lu already exists: "
+			pmfs_dbg("%s: entry %lu - %lu already exists: "
 				"%lu - %lu\n",
 				 __func__, new_node->range_low,
 				new_node->range_high, curr->range_low,
@@ -367,49 +367,49 @@ int duofs_insert_range_node(struct rb_root *tree,
 	return 0;
 }
 
-void duofs_destroy_range_node_tree(struct super_block *sb,
+void pmfs_destroy_range_node_tree(struct super_block *sb,
 				  struct rb_root *tree)
 {
-	struct duofs_range_node *curr;
+	struct pmfs_range_node *curr;
 	struct rb_node *temp;
 
 	temp = rb_first(tree);
 	while (temp) {
-		curr = container_of(temp, struct duofs_range_node, node);
+		curr = container_of(temp, struct pmfs_range_node, node);
 		temp = rb_next(temp);
 		rb_erase(&curr->node, tree);
-		duofs_free_range_node(curr);
+		pmfs_free_range_node(curr);
 	}
 }
 
-int duofs_insert_blocktree(struct rb_root *tree,
-			  struct duofs_range_node *new_node)
+int pmfs_insert_blocktree(struct rb_root *tree,
+			  struct pmfs_range_node *new_node)
 {
 	int ret;
 
-	ret = duofs_insert_range_node(tree, new_node, NODE_BLOCK);
+	ret = pmfs_insert_range_node(tree, new_node, NODE_BLOCK);
 	if (ret)
-		duofs_dbg("ERROR: %s failed %d\n", __func__, ret);
+		pmfs_dbg("ERROR: %s failed %d\n", __func__, ret);
 
 	return ret;
 }
 
-struct duofs_range_node *duofs_alloc_blocknode_atomic(struct super_block *sb)
+struct pmfs_range_node *pmfs_alloc_blocknode_atomic(struct super_block *sb)
 {
-	return duofs_alloc_range_node_atomic(sb);
+	return pmfs_alloc_range_node_atomic(sb);
 }
 
 /* Allocate a superpage. This assumes that all big allocations have been
  * broken down to 2MB allocations. So here the num_blocks are expected to be
  * 512
  */
-bool duofs_alloc_superpage(struct super_block *sb,
+bool pmfs_alloc_superpage(struct super_block *sb,
 	struct free_list *free_list, unsigned long num_blocks,
 	unsigned long *new_blocknr)
 {
 	struct rb_root *tree;
 	struct rb_node *temp;
-	struct duofs_range_node *curr, *node;
+	struct pmfs_range_node *curr, *node;
 	bool found = 0;
 	unsigned long step = 0;
 
@@ -417,7 +417,7 @@ bool duofs_alloc_superpage(struct super_block *sb,
 	unsigned int right_margin;
 
 	if (num_blocks != PAGES_PER_2MB) {
-		duofs_dbg("%s: wrong number of blocks. Expected = 512. Requested = %lu\n",
+		pmfs_dbg("%s: wrong number of blocks. Expected = 512. Requested = %lu\n",
 			 __func__, num_blocks);
 		dump_stack();
 		return found;
@@ -428,22 +428,22 @@ bool duofs_alloc_superpage(struct super_block *sb,
 
 	if (temp) {
 		step++;
-		curr = container_of(temp, struct duofs_range_node, node);
+		curr = container_of(temp, struct pmfs_range_node, node);
 		*new_blocknr = curr->range_low;
 		node = NULL;
 		temp = rb_next(temp);
 		if (temp)
-			node = container_of(temp, struct duofs_range_node, node);
+			node = container_of(temp, struct pmfs_range_node, node);
 		free_list->first_node_huge_aligned = node;
 
 		/* release curr after updating {first, last}_node */
 		rb_erase(&curr->node, tree);
-		duofs_free_blocknode(curr);
+		pmfs_free_blocknode(curr);
 		free_list->num_blocknode_huge_aligned--;
 		found = 1;
 	}
 
-	duofs_dbg_verbose("%s: blocknr = %lu. num_blocks = %lu\n",
+	pmfs_dbg_verbose("%s: blocknr = %lu. num_blocks = %lu\n",
 			 __func__, *new_blocknr, num_blocks);
 
 	return found;
@@ -451,13 +451,13 @@ bool duofs_alloc_superpage(struct super_block *sb,
 
 
 /* Return how many blocks allocated */
-static long duofs_alloc_blocks_in_free_list(struct super_block *sb,
+static long pmfs_alloc_blocks_in_free_list(struct super_block *sb,
 	struct free_list *free_list, unsigned short btype,
 	unsigned long num_blocks,
 	unsigned long *new_blocknr)
 {
 	struct rb_root *tree, *huge_tree;
-	struct duofs_range_node *curr, *node, *next = NULL, *prev = NULL, *blknode;
+	struct pmfs_range_node *curr, *node, *next = NULL, *prev = NULL, *blknode;
 	struct rb_node *temp, *temp_huge, *next_node, *prev_node;
 	unsigned long curr_blocks;
 	bool found = 0;
@@ -467,7 +467,7 @@ static long duofs_alloc_blocks_in_free_list(struct super_block *sb,
 	if ((!free_list->first_node_unaligned &&
 	     !free_list->first_node_huge_aligned) ||
 	    free_list->num_free_blocks == 0) {
-		duofs_dbg("%s: Can't alloc. free_list->first_node_unaligned=0x%p "
+		pmfs_dbg("%s: Can't alloc. free_list->first_node_unaligned=0x%p "
 				 "free_list->first_node_aligned=0x%p "
 				 "free_list->num_free_blocks = %lu",
 				 __func__, free_list->first_node_unaligned,
@@ -476,7 +476,7 @@ static long duofs_alloc_blocks_in_free_list(struct super_block *sb,
 		return -ENOSPC;
 	}
 
-	duofs_dbg_verbose("%s: Got allocation req for num_blocks = %lu\n",
+	pmfs_dbg_verbose("%s: Got allocation req for num_blocks = %lu\n",
 			 __func__, num_blocks);
 
 	tree = &(free_list->unaligned_block_free_tree);
@@ -485,7 +485,7 @@ static long duofs_alloc_blocks_in_free_list(struct super_block *sb,
 
 	/* Try huge block allocation for data blocks first */
 	if (IS_DATABLOCKS_2MB_ALIGNED(num_blocks)) {
-		found_hugeblock = duofs_alloc_superpage(sb, free_list,
+		found_hugeblock = pmfs_alloc_superpage(sb, free_list,
 					num_blocks, new_blocknr);
 		if (found_hugeblock)
 			goto success;
@@ -497,31 +497,31 @@ static long duofs_alloc_blocks_in_free_list(struct super_block *sb,
 	 */
 	if (!temp) {
 		temp = &(free_list->first_node_huge_aligned->node);
-		curr = container_of(temp, struct duofs_range_node, node);
+		curr = container_of(temp, struct pmfs_range_node, node);
 
-		blknode = duofs_alloc_blocknode(sb);
+		blknode = pmfs_alloc_blocknode(sb);
 		if (blknode == NULL) {
-			duofs_dbg("%s: alloc blocknode failed\n", __func__);
+			pmfs_dbg("%s: alloc blocknode failed\n", __func__);
 			return -ENOMEM;
 		}
 		blknode->range_low = curr->range_low;
 		blknode->range_high = curr->range_high;
-		duofs_insert_blocktree(tree, blknode);
+		pmfs_insert_blocktree(tree, blknode);
 		free_list->first_node_unaligned = blknode;
 
-		duofs_dbg_verbose("%s: breaking an aligned free space from hugepage rb tree "
+		pmfs_dbg_verbose("%s: breaking an aligned free space from hugepage rb tree "
 			 "curr->range_low = %lu. curr->range_high = %lu. free_list idx = %d\n",
 			 __func__, curr->range_low, curr->range_high, free_list->index);
 
 		node = NULL;
 		next_node = rb_next(temp);
 		if (next_node)
-			next = container_of(next_node, struct duofs_range_node, node);
+			next = container_of(next_node, struct pmfs_range_node, node);
 		free_list->first_node_huge_aligned = next;
 
 		/* release curr after updating {first, last}_node */
 		rb_erase(&curr->node, huge_tree);
-		duofs_free_blocknode(curr);
+		pmfs_free_blocknode(curr);
 		free_list->num_blocknode_huge_aligned--;
 		free_list->num_blocknode_unaligned++;
 		temp = &(free_list->first_node_unaligned->node);
@@ -533,11 +533,11 @@ static long duofs_alloc_blocks_in_free_list(struct super_block *sb,
 	/* fallback to un-aligned allocation then */
 	while (temp) {
 		step++;
-		curr = container_of(temp, struct duofs_range_node, node);
+		curr = container_of(temp, struct pmfs_range_node, node);
 
 		curr_blocks = curr->range_high - curr->range_low + 1;
 
-		duofs_dbg_verbose("%s: curr->range_low = %lu. "
+		pmfs_dbg_verbose("%s: curr->range_low = %lu. "
 				 "curr->range_high = %lu. curr_blocks = %lu\n",
 				 __func__, curr->range_low, curr->range_high, curr_blocks);
 
@@ -551,7 +551,7 @@ static long duofs_alloc_blocks_in_free_list(struct super_block *sb,
 				next_node = rb_next(temp);
 				if (next_node)
 					next = container_of(next_node,
-						struct duofs_range_node, node);
+						struct pmfs_range_node, node);
 				free_list->first_node_unaligned = next;
 			}
 
@@ -559,7 +559,7 @@ static long duofs_alloc_blocks_in_free_list(struct super_block *sb,
 			free_list->num_blocknode_unaligned--;
 			num_blocks = curr_blocks;
 			*new_blocknr = curr->range_low;
-			duofs_free_blocknode(curr);
+			pmfs_free_blocknode(curr);
 			found = 1;
 			break;
 		}
@@ -575,7 +575,7 @@ next:
 	}
 
 	if (free_list->num_free_blocks < num_blocks) {
-		duofs_dbg("%s: free list %d has %lu free blocks, "
+		pmfs_dbg("%s: free list %d has %lu free blocks, "
 			 "but allocated %lu blocks?\n",
 			 __func__, free_list->index,
 			 free_list->num_free_blocks, num_blocks);
@@ -586,7 +586,7 @@ success:
 	if ((found == 1) || (found_hugeblock == 1))
 		free_list->num_free_blocks -= num_blocks;
 	else {
-		duofs_dbg("%s: Can't alloc.  found = %d", __func__, found);
+		pmfs_dbg("%s: Can't alloc.  found = %d", __func__, found);
 		return -ENOSPC;
 	}
 
@@ -594,18 +594,18 @@ success:
 }
 
 /* Used for both block free tree and inode inuse tree */
-int duofs_find_free_slot(struct rb_root *tree, unsigned long range_low,
-	unsigned long range_high, struct duofs_range_node **prev,
-	struct duofs_range_node **next)
+int pmfs_find_free_slot(struct rb_root *tree, unsigned long range_low,
+	unsigned long range_high, struct pmfs_range_node **prev,
+	struct pmfs_range_node **next)
 {
-	struct duofs_range_node *ret_node = NULL;
+	struct pmfs_range_node *ret_node = NULL;
 	struct rb_node *tmp;
 	int check_prev = 0, check_next = 0;
 	int ret;
 
-	ret = duofs_find_range_node(tree, range_low, NODE_BLOCK, &ret_node);
+	ret = pmfs_find_range_node(tree, range_low, NODE_BLOCK, &ret_node);
 	if (ret) {
-		duofs_dbg("%s ERROR: %lu - %lu already in free list\n",
+		pmfs_dbg("%s ERROR: %lu - %lu already in free list\n",
 			__func__, range_low, range_high);
 		return -EINVAL;
 	}
@@ -616,7 +616,7 @@ int duofs_find_free_slot(struct rb_root *tree, unsigned long range_low,
 		*prev = ret_node;
 		tmp = rb_next(&ret_node->node);
 		if (tmp) {
-			*next = container_of(tmp, struct duofs_range_node, node);
+			*next = container_of(tmp, struct pmfs_range_node, node);
 			check_next = 1;
 		} else {
 			*next = NULL;
@@ -625,13 +625,13 @@ int duofs_find_free_slot(struct rb_root *tree, unsigned long range_low,
 		*next = ret_node;
 		tmp = rb_prev(&ret_node->node);
 		if (tmp) {
-			*prev = container_of(tmp, struct duofs_range_node, node);
+			*prev = container_of(tmp, struct pmfs_range_node, node);
 			check_prev = 1;
 		} else {
 			*prev = NULL;
 		}
 	} else {
-		duofs_dbg("%s ERROR: %lu - %lu overlaps with existing "
+		pmfs_dbg("%s ERROR: %lu - %lu overlaps with existing "
 			 "node %lu - %lu\n",
 			 __func__, range_low, range_high, ret_node->range_low,
 			ret_node->range_high);
@@ -642,12 +642,12 @@ int duofs_find_free_slot(struct rb_root *tree, unsigned long range_low,
 }
 
 static int insert_in_huge_tree(struct rb_root *huge_tree,
-			       struct duofs_range_node *node,
+			       struct pmfs_range_node *node,
 			       struct free_list *free_list)
 {
 	int ret = 0;
 
-	ret = duofs_insert_blocktree(huge_tree, node);
+	ret = pmfs_insert_blocktree(huge_tree, node);
 	if (ret) {
 		goto out;
 	}
@@ -667,8 +667,8 @@ static int insert_in_huge_tree(struct rb_root *huge_tree,
 static int check_and_insert_huge_aligned(struct super_block *sb,
 					 struct rb_root *unaligned_tree,
 					 struct rb_root *huge_tree,
-					 struct duofs_range_node *new_node,
-					 struct duofs_range_node *old_node,
+					 struct pmfs_range_node *new_node,
+					 struct pmfs_range_node *old_node,
 					 struct free_list *free_list,
 					 int *new_node_used)
 {
@@ -678,7 +678,7 @@ static int check_and_insert_huge_aligned(struct super_block *sb,
 	unsigned long num_hugepages = 0;
 	int ret = 0;
 	int idx = 0;
-	struct duofs_range_node *node, *next = NULL;
+	struct pmfs_range_node *node, *next = NULL;
 	struct rb_node *next_node, *temp;
 	unsigned long unaligned_block_high = 0;
 	unsigned long unaligned_block_low = 0;
@@ -729,7 +729,7 @@ static int check_and_insert_huge_aligned(struct super_block *sb,
 	if (unaligned_block_low == block_high + 1) {
 		if (new_unaligned_node_needed == 1) {
 			node = new_node;
-			ret = duofs_insert_blocktree(unaligned_tree, node);
+			ret = pmfs_insert_blocktree(unaligned_tree, node);
 			if (ret) {
 				goto out;
 			}
@@ -749,13 +749,13 @@ static int check_and_insert_huge_aligned(struct super_block *sb,
 			next_node = rb_next(temp);
 			if (next_node)
 				next = container_of(next_node,
-						    struct duofs_range_node, node);
+						    struct pmfs_range_node, node);
 			free_list->first_node_unaligned = next;
 		}
 
 		rb_erase(&old_node->node, unaligned_tree);
 		free_list->num_blocknode_unaligned--;
-		duofs_free_blocknode(old_node);
+		pmfs_free_blocknode(old_node);
 	}
 
 	/* For each new huge page, allocate a range_node and insert it in huge_tree */
@@ -764,7 +764,7 @@ static int check_and_insert_huge_aligned(struct super_block *sb,
 			node = new_node;
 			*new_node_used = 1;
 		} else {
-			node = duofs_alloc_blocknode(sb);
+			node = pmfs_alloc_blocknode(sb);
 			if (node == NULL) {
 				ret = -ENOMEM;
 				goto out;
@@ -783,17 +783,17 @@ static int check_and_insert_huge_aligned(struct super_block *sb,
 	return ret;
 }
 
-int duofs_free_blocks(struct super_block *sb, unsigned long blocknr,
+int pmfs_free_blocks(struct super_block *sb, unsigned long blocknr,
 	int num, unsigned short btype)
 {
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	struct rb_root *tree, *huge_tree;
 	unsigned long block_low;
 	unsigned long block_high;
 	unsigned long num_blocks = 0, num_blocks_local = 0;
-	struct duofs_range_node *prev = NULL;
-	struct duofs_range_node *next = NULL;
-	struct duofs_range_node *curr_node;
+	struct pmfs_range_node *prev = NULL;
+	struct pmfs_range_node *next = NULL;
+	struct pmfs_range_node *curr_node;
 	struct free_list *free_list;
 	int cpuid;
 	int new_node_used = 0;
@@ -801,7 +801,7 @@ int duofs_free_blocks(struct super_block *sb, unsigned long blocknr,
 	unsigned long temp_blocknr;
 
 	if (num <= 0) {
-		duofs_dbg("%s ERROR: free %d\n", __func__, num);
+		pmfs_dbg("%s ERROR: free %d\n", __func__, num);
 		BUG();
 		return -EINVAL;
 	}
@@ -837,17 +837,17 @@ int duofs_free_blocks(struct super_block *sb, unsigned long blocknr,
 		}
 	}
 
-	free_list = duofs_get_free_list(sb, cpuid);
+	free_list = pmfs_get_free_list(sb, cpuid);
 
 	tree = &(free_list->unaligned_block_free_tree);
 	huge_tree = &(free_list->huge_aligned_block_free_tree);
 
-	num_blocks = duofs_get_numblocks(btype) * num;
+	num_blocks = pmfs_get_numblocks(btype) * num;
 
 	while (num_blocks) {
 
 		/* Pre-allocate blocknode */
-		curr_node = duofs_alloc_blocknode(sb);
+		curr_node = pmfs_alloc_blocknode(sb);
 		if (curr_node == NULL) {
 			/* returning without freeing the block*/
 			return -ENOMEM;
@@ -864,11 +864,11 @@ int duofs_free_blocks(struct super_block *sb, unsigned long blocknr,
 		block_low = blocknr;
 		block_high = blocknr + num_blocks_local - 1;
 
-		duofs_dbg_verbose("Free: %lu - %lu\n", block_low, block_high);
+		pmfs_dbg_verbose("Free: %lu - %lu\n", block_low, block_high);
 
 		if (blocknr < free_list->block_start ||
 		    blocknr + num > free_list->block_end + 1) {
-			duofs_err(sb, "free blocks %lu to %lu, free list %d, "
+			pmfs_err(sb, "free blocks %lu to %lu, free list %d, "
 				 "start %lu, end %lu\n",
 				 blocknr, blocknr + num - 1,
 				 free_list->index,
@@ -890,7 +890,7 @@ int duofs_free_blocks(struct super_block *sb, unsigned long blocknr,
 			goto block_found;
 		}
 
-		ret = duofs_find_free_slot(tree, block_low,
+		ret = pmfs_find_free_slot(tree, block_low,
 					  block_high, &prev, &next);
 
 		if (ret) {
@@ -903,7 +903,7 @@ int duofs_free_blocks(struct super_block *sb, unsigned long blocknr,
 			rb_erase(&next->node, tree);
 			free_list->num_blocknode_unaligned--;
 			prev->range_high = next->range_high;
-			duofs_free_blocknode(next);
+			pmfs_free_blocknode(next);
 			ret = check_and_insert_huge_aligned(sb, tree, huge_tree,
 							    curr_node, prev,
 							    free_list, &new_node_used);
@@ -936,7 +936,7 @@ int duofs_free_blocks(struct super_block *sb, unsigned long blocknr,
 		curr_node->range_low = block_low;
 		curr_node->range_high = block_high;
 		new_node_used = 1;
-		ret = duofs_insert_blocktree(tree, curr_node);
+		ret = pmfs_insert_blocktree(tree, curr_node);
 		if (ret) {
 			new_node_used = 0;
 			goto out;
@@ -951,7 +951,7 @@ int duofs_free_blocks(struct super_block *sb, unsigned long blocknr,
 		spin_unlock(&free_list->s_lock);
 
 		if (new_node_used == 0)
-			duofs_free_blocknode(curr_node);
+			pmfs_free_blocknode(curr_node);
 
 		num_blocks -= num_blocks_local;
 		blocknr += num_blocks_local;
@@ -961,7 +961,7 @@ int duofs_free_blocks(struct super_block *sb, unsigned long blocknr,
 	if (ret != 0) {
 		spin_unlock(&free_list->s_lock);
 		if (new_node_used == 0)
-			duofs_free_blocknode(curr_node);
+			pmfs_free_blocknode(curr_node);
 	}
 
 	return ret;
@@ -970,12 +970,12 @@ int duofs_free_blocks(struct super_block *sb, unsigned long blocknr,
 static int not_enough_blocks(struct free_list *free_list,
 	unsigned long num_blocks)
 {
-	struct duofs_range_node *first_unaligned = free_list->first_node_unaligned;
-	struct duofs_range_node *first_huge_aligned = free_list->first_node_huge_aligned;
+	struct pmfs_range_node *first_unaligned = free_list->first_node_unaligned;
+	struct pmfs_range_node *first_huge_aligned = free_list->first_node_huge_aligned;
 
 	if (free_list->num_free_blocks < num_blocks ||
 	    (!first_unaligned && !first_huge_aligned)) {
-		duofs_dbg_verbose("%s: num_free_blocks=%ld; num_blocks=%ld; "
+		pmfs_dbg_verbose("%s: num_free_blocks=%ld; num_blocks=%ld; "
 				 "first_unaligned=0x%p; "
 				 "first_aligned=0x%p\n",
 				 __func__, free_list->num_free_blocks, num_blocks,
@@ -988,16 +988,16 @@ static int not_enough_blocks(struct free_list *free_list,
 }
 
 /* Find out the free list with most free blocks */
-static int duofs_get_candidate_free_list(struct super_block *sb)
+static int pmfs_get_candidate_free_list(struct super_block *sb)
 {
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	struct free_list *free_list;
 	int cpuid = 0;
 	int num_free_blocks = 0;
 	int i;
 
 	for (i = 0; i < sbi->cpus; i++) {
-		free_list = duofs_get_free_list(sb, i);
+		free_list = pmfs_get_free_list(sb, i);
 		if (free_list->num_free_blocks > num_free_blocks) {
 			cpuid = i;
 			num_free_blocks = free_list->num_free_blocks;
@@ -1007,7 +1007,7 @@ static int duofs_get_candidate_free_list(struct super_block *sb)
 	return cpuid;
 }
 
-int duofs_new_blocks(struct super_block *sb, unsigned long *blocknr,
+int pmfs_new_blocks(struct super_block *sb, unsigned long *blocknr,
 		    unsigned int num, unsigned short btype, int zero, int cpuid)
 {
 	struct free_list *free_list;
@@ -1018,22 +1018,22 @@ int duofs_new_blocks(struct super_block *sb, unsigned long *blocknr,
 	int retried = 0;
 	timing_t alloc_time;
 
-	num_blocks = num * duofs_get_numblocks(btype);
+	num_blocks = num * pmfs_get_numblocks(btype);
 	if (num_blocks == 0) {
-		duofs_dbg_verbose("%s: num_blocks == 0", __func__);
+		pmfs_dbg_verbose("%s: num_blocks == 0", __func__);
 		return -EINVAL;
 	}
 
 	if (cpuid == ANY_CPU)
-		cpuid = duofs_get_cpuid(sb);
+		cpuid = pmfs_get_cpuid(sb);
 
 retry:
-	free_list = duofs_get_free_list(sb, cpuid);
+	free_list = pmfs_get_free_list(sb, cpuid);
 
 	spin_lock(&free_list->s_lock);
 
 	if (not_enough_blocks(free_list, num_blocks)) {
-		duofs_dbg_verbose("%s: cpu %d, free_blocks %lu, required %lu, "
+		pmfs_dbg_verbose("%s: cpu %d, free_blocks %lu, required %lu, "
 			  "blocknode %lu\n",
 			  __func__, cpuid, free_list->num_free_blocks,
 			  num_blocks, free_list->num_blocknode_unaligned +
@@ -1045,39 +1045,39 @@ retry:
 
 		spin_unlock(&free_list->s_lock);
 
-		cpuid = duofs_get_candidate_free_list(sb);
+		cpuid = pmfs_get_candidate_free_list(sb);
 		retried++;
 		goto retry;
 	}
 alloc:
-	ret_blocks = duofs_alloc_blocks_in_free_list(sb, free_list, btype,
+	ret_blocks = pmfs_alloc_blocks_in_free_list(sb, free_list, btype,
 					num_blocks, &new_blocknr);
 
 	spin_unlock(&free_list->s_lock);
 
 	if (ret_blocks <= 0 || new_blocknr == 0) {
-		duofs_dbg("%s: not able to allocate %d blocks. "
+		pmfs_dbg("%s: not able to allocate %d blocks. "
 			  "ret_blocks=%ld; new_blocknr=%lu",
 			  __func__, num, ret_blocks, new_blocknr);
 		return -ENOSPC;
 	}
 
 	if (zero) {
-		bp = duofs_get_block(sb, duofs_get_block_off(sb,
+		bp = pmfs_get_block(sb, pmfs_get_block_off(sb,
 							   new_blocknr, btype));
-		duofs_memunlock_range(sb, bp, PAGE_SIZE * ret_blocks);
+		pmfs_memunlock_range(sb, bp, PAGE_SIZE * ret_blocks);
 		memset_nt(bp, 0, PAGE_SIZE * ret_blocks);
-		duofs_memlock_range(sb, bp, PAGE_SIZE * ret_blocks);
+		pmfs_memlock_range(sb, bp, PAGE_SIZE * ret_blocks);
 	}
 	*blocknr = new_blocknr;
 
-	duofs_dbg_verbose("Alloc %lu NVMM blocks 0x%lx\n", ret_blocks, *blocknr);
-	return ret_blocks / duofs_get_numblocks(btype);
+	pmfs_dbg_verbose("Alloc %lu NVMM blocks 0x%lx\n", ret_blocks, *blocknr);
+	return ret_blocks / pmfs_get_numblocks(btype);
 }
 
-unsigned int duofs_get_free_numa_node(struct super_block *sb)
+unsigned int pmfs_get_free_numa_node(struct super_block *sb)
 {
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	struct free_list *free_list;
 	unsigned long num_free_blocks_node_1 = 0;
 	unsigned long num_free_blocks_node_2 = 0;
@@ -1087,7 +1087,7 @@ unsigned int duofs_get_free_numa_node(struct super_block *sb)
 	if (sbi->num_numa_nodes == 2) {
 		if (sbi->cpus == 96) {
 			for (i = 0; i < sbi->cpus; i++) {
-				free_list = duofs_get_free_list(sb, i);
+				free_list = pmfs_get_free_list(sb, i);
 				if (i < 24 || (i >= 48 && i < 72))
 					num_free_blocks_node_1 += free_list->num_free_blocks;
 				else
@@ -1095,7 +1095,7 @@ unsigned int duofs_get_free_numa_node(struct super_block *sb)
 			}
 		} else if (sbi->cpus == 32) {
 			for (i = 0; i < sbi->cpus; i++) {
-				free_list = duofs_get_free_list(sb, i);
+				free_list = pmfs_get_free_list(sb, i);
 				if (i < 8 || (i >= 16 && i < 24))
 					num_free_blocks_node_1 += free_list->num_free_blocks;
 				else
@@ -1109,15 +1109,15 @@ unsigned int duofs_get_free_numa_node(struct super_block *sb)
 	return 1;
 }
 
-unsigned long duofs_count_free_blocks(struct super_block *sb)
+unsigned long pmfs_count_free_blocks(struct super_block *sb)
 {
-	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	struct free_list *free_list;
 	unsigned long num_free_blocks = 0;
 	int i;
 
 	for (i = 0; i < sbi->cpus; i++) {
-		free_list = duofs_get_free_list(sb, i);
+		free_list = pmfs_get_free_list(sb, i);
 		num_free_blocks += free_list->num_free_blocks;
 	}
 

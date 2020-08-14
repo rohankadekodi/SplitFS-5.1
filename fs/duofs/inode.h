@@ -168,8 +168,10 @@ static inline struct inode_table *duofs_get_inode_table_log(struct super_block *
 
 	table_start = INODE_TABLE0_START;
 
-	return (struct inode_table *)((char *)duofs_get_block(sb,
-							     DUOFS_DEF_BLOCK_SIZE_4K * table_start) +
+	return (struct inode_table *)((char *)
+				      duofs_get_block(sb,
+						      DUOFS_DEF_BLOCK_SIZE_4K *
+						      table_start) +
 				      cpu * CACHELINE_SIZE);
 }
 
@@ -208,17 +210,17 @@ static inline struct duofs_inode *duofs_get_inode(struct super_block *sb, u64 in
 
 	curr = inode_table->log_head;
 
-	//duofs_dbg_verbose("%s: cpuid = %d. ino = %llu. internal_ino = %llu. inode_table = 0x%p. superpage_count = %u. index = %u. curr = %llu log_head addr = 0x%p\n", __func__, cpuid, ino, internal_ino, inode_table, superpage_count, index, curr, &(inode_table->log_head));
+	duofs_dbg_verbose("%s: cpuid = %d. ino = %llu. internal_ino = %llu. inode_table = 0x%p. superpage_count = %u. index = %u. curr = %llu log_head addr = 0x%p\n", __func__, cpuid, ino, internal_ino, inode_table, superpage_count, index, curr, &(inode_table->log_head));
 
 	if (curr == 0) {
-		duofs_dbg_verbose("%s: could not find inode for ino = %llu\n",
+		duofs_dbg("%s: could not find inode for ino = %llu\n",
 				 __func__, ino);
 		return NULL;
 	}
 
 	for (i = 0; i < superpage_count; i++) {
 		if (curr == 0) {
-			duofs_dbg_verbose("%s: could not get the inode log for super page = %d\n",
+			duofs_dbg("%s: could not get the inode log for super page = %d\n",
 					 __func__, i);
 			return NULL;
 		}
@@ -234,12 +236,12 @@ static inline struct duofs_inode *duofs_get_inode(struct super_block *sb, u64 in
 						    1, cpuid);
 
 			if (allocated != 1) {
-				duofs_dbg_verbose("%s: could not extend inode table for cpu = %d\n",
+				duofs_dbg("%s: could not extend inode table for cpu = %d\n",
 						 __func__, cpuid);
 				return NULL;
 			}
 
-			duofs_dbg_verbose("%s: extended inode table for cpu = %d\n",
+			duofs_dbg("%s: extended inode table for cpu = %d\n",
 					 __func__, cpuid);
 
 

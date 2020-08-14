@@ -303,10 +303,10 @@ struct duofs_sb_info {
 	unsigned long head_reserved_blocks;
 
 	/* Journaling related structures */
-	uint32_t    next_transaction_id;
+	atomic64_t    next_transaction_id;
 	uint32_t    jsize;
-	void       *journal_base_addr;
-	struct mutex journal_mutex;
+	void       **journal_base_addr;
+	struct mutex *journal_mutex;
 	struct task_struct *log_cleaner_thread;
 	wait_queue_head_t  log_cleaner_wait;
 	bool redo_log;
@@ -392,12 +392,13 @@ static inline struct duofs_super_block *duofs_get_super(struct super_block *sb)
 	return (struct duofs_super_block *)sbi->virt_addr;
 }
 
-static inline duofs_journal_t *duofs_get_journal(struct super_block *sb)
+static inline duofs_journal_t *duofs_get_journal(struct super_block *sb, int cpu)
 {
 	struct duofs_super_block *ps = duofs_get_super(sb);
 
 	return (duofs_journal_t *)((char *)ps +
-			le64_to_cpu(ps->s_journal_offset));
+				   (le64_to_cpu(ps->s_journal_offset)) +
+				   (cpu * CACHELINE_SIZE));
 }
 
 static inline struct duofs_inode *duofs_get_inode_table(struct super_block *sb)

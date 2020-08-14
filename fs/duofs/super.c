@@ -414,7 +414,7 @@ static struct duofs_inode *duofs_init(struct super_block *sb,
 				    unsigned long size_2)
 {
 	unsigned long blocksize;
-	u64 journal_meta_start, journal_data_start, inode_table_start;
+	u64 inode_table_start, journal_data_start;
 	struct duofs_inode *root_i;
 	struct duofs_super_block *super;
 	struct duofs_sb_info *sbi = DUOFS_SB(sb);
@@ -422,6 +422,8 @@ static struct duofs_inode *duofs_init(struct super_block *sb,
 	unsigned long blocknr;
 	int idx;
 	unsigned long num_blocks_1;
+	u64 *journal_meta_start;
+	u64 journal_start;
 
 	duofs_info("creating an empty duofs of size %lu\n", size + size_2);
 
@@ -471,10 +473,19 @@ static struct duofs_inode *duofs_init(struct super_block *sb,
 		return ERR_PTR(-EINVAL);
 	}
 
-	journal_meta_start = sizeof(struct duofs_super_block);
-	journal_meta_start = (journal_meta_start + CACHELINE_SIZE - 1) &
-		~(CACHELINE_SIZE - 1);
-	inode_table_start = journal_meta_start + sizeof(duofs_journal_t);
+	journal_meta_start = kmalloc(sizeof(u64) * sbi->cpus, GFP_ATOMIC);
+	journal_start = sizeof(struct duofs_super_block);
+
+
+	for (idx = 0; idx < sbi->cpus; idx++) {
+		journal_meta_start[idx] = journal_start;
+		journal_meta_start[idx] = (journal_meta_start[idx] + CACHELINE_SIZE - 1) &
+			~(CACHELINE_SIZE - 1);
+		duofs_dbg_verbose("journal_meta_start[%d] = 0x%x\n", idx, journal_meta_start[idx]);
+		journal_start = journal_meta_start[idx] + sizeof(duofs_journal_t);
+	}
+
+	inode_table_start = journal_start;
 	inode_table_start = (inode_table_start + CACHELINE_SIZE - 1) &
 		~(CACHELINE_SIZE - 1);
 
@@ -491,7 +502,7 @@ static struct duofs_inode *duofs_init(struct super_block *sb,
 	//	~(blocksize - 1);
 
 	duofs_dbg_verbose("journal meta start %llx data start 0x%llx, "
-		"journal size 0x%x, inode_table 0x%llx\n", journal_meta_start,
+		"journal size 0x%x, inode_table 0x%llx\n", journal_meta_start[0],
 		journal_data_start, sbi->jsize, inode_table_start);
 	duofs_dbg_verbose("max file name len %d\n", (unsigned int)DUOFS_NAME_LEN);
 
@@ -503,10 +514,10 @@ static struct duofs_inode *duofs_init(struct super_block *sb,
 	super->s_size = cpu_to_le64(size);
 	super->s_blocksize = cpu_to_le32(blocksize);
 	super->s_magic = cpu_to_le16(DUOFS_SUPER_MAGIC);
-	super->s_journal_offset = cpu_to_le64(journal_meta_start);
+	super->s_journal_offset = cpu_to_le64(journal_meta_start[0]);
 	super->s_inode_table_offset = cpu_to_le64(inode_table_start);
 
-	duofs_init_blockmap(sb, journal_data_start + sbi->jsize);
+	duofs_init_blockmap(sb, journal_data_start + (sbi->jsize * sbi->cpus));
 	duofs_memlock_range(sb, super, journal_data_start);
 
 	if (duofs_journal_hard_init(sb, journal_data_start, sbi->jsize) < 0) {
@@ -521,7 +532,7 @@ static struct duofs_inode *duofs_init(struct super_block *sb,
 		return ERR_PTR(-EINVAL);
 
 	duofs_dbg_verbose("%s: inode inuse list and inode table initialized\n",
-			 __func__);
+			  __func__);
 
 	duofs_memunlock_range(sb, super, DUOFS_SB_SIZE*2);
 	duofs_sync_super(super);
@@ -533,19 +544,14 @@ static struct duofs_inode *duofs_init(struct super_block *sb,
 	duofs_new_blocks(sb, &blocknr, 1, DUOFS_BLOCK_TYPE_4K, 1, ANY_CPU);
 
 	root_i = duofs_get_inode(sb, DUOFS_ROOT_INO);
-	duofs_dbg_verbose("%s: Allocate root inode @ 0x%p\n", __func__, root_i);
 
 	duofs_memunlock_inode(sb, root_i);
-	duofs_dbg_verbose("%s: memunlock inode done\n", __func__);
 
 	root_i->i_mode = cpu_to_le16(sbi->mode | S_IFDIR);
 	root_i->i_uid = cpu_to_le32(from_kuid(&init_user_ns, sbi->uid));
 	root_i->i_gid = cpu_to_le32(from_kgid(&init_user_ns, sbi->gid));
 	root_i->i_links_count = cpu_to_le16(2);
 	root_i->i_blk_type = DUOFS_BLOCK_TYPE_4K;
-
-	duofs_dbg_verbose("%s: partially initialized the root_i inode\n", __func__);
-
 	root_i->i_flags = 0;
 	root_i->i_blocks = cpu_to_le64(1);
 	root_i->i_size = cpu_to_le64(sb->s_blocksize);

@@ -115,7 +115,7 @@ static long duofs_fallocate(struct file *file, int mode, loff_t offset,
 	}
 
 	trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES +
-			MAX_METABLOCK_LENTRIES);
+				      MAX_METABLOCK_LENTRIES, duofs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		ret = PTR_ERR(trans);
 		goto out;

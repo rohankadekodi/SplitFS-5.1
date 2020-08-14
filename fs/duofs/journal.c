@@ -319,11 +319,11 @@ static uint32_t duofs_process_transaction(struct super_block *sb, uint32_t head,
 	return head;
 }
 
-static int duofs_clean_journal(struct super_block *sb, bool unmount,
+static int duofs_clean_journal(struct super_block *sb, bool unmount, int cpu,
 	int take_lock)
 {
 	struct duofs_sb_info *sbi = DUOFS_SB(sb);
-	duofs_journal_t *journal = duofs_get_journal(sb);
+	duofs_journal_t *journal = duofs_get_journal(sb, cpu);
 	uint32_t head;
 	uint32_t new_head, tail;
 	uint16_t gen_id;
@@ -334,7 +334,7 @@ static int duofs_clean_journal(struct super_block *sb, bool unmount,
 	duofs_logentry_t *le;
 
 	if (take_lock)
-		mutex_lock(&sbi->journal_mutex);
+		mutex_lock(&sbi->journal_mutex[cpu]);
 	head = le32_to_cpu(journal->head);
 	ptr_tail_genid = (volatile __le64 *)&journal->tail;
 
@@ -352,7 +352,7 @@ static int duofs_clean_journal(struct super_block *sb, bool unmount,
 		gen_id = prev_gen_id(gen_id);
 	duofs_dbg_trans("starting journal cleaning %x %x\n", head, tail);
 	while (head != tail) {
-		le = (duofs_logentry_t *)(sbi->journal_base_addr + head);
+		le = (duofs_logentry_t *)(sbi->journal_base_addr[cpu] + head);
 		if (gen_id == le16_to_cpu(le->gen_id)) {
 			/* found a valid log entry, process the transaction */
 			new_head = duofs_process_transaction(sb, head, tail,
@@ -389,7 +389,7 @@ static int duofs_clean_journal(struct super_block *sb, bool unmount,
 	}
 	duofs_dbg_trans("leaving journal cleaning %x %x\n", head, tail);
 	if (take_lock)
-		mutex_unlock(&sbi->journal_mutex);
+		mutex_unlock(&sbi->journal_mutex[cpu]);
 	return total;
 }
 
@@ -405,6 +405,7 @@ static int duofs_log_cleaner(void *arg)
 {
 	struct super_block *sb = (struct super_block *)arg;
 	struct duofs_sb_info *sbi = DUOFS_SB(sb);
+	int i;
 
 	duofs_dbg_trans("Running log cleaner thread\n");
 	for ( ; ; ) {
@@ -413,9 +414,13 @@ static int duofs_log_cleaner(void *arg)
 		if (kthread_should_stop())
 			break;
 
-		duofs_clean_journal(sb, false, 1);
+		for (i = 0; i < sbi->cpus; i++)
+			duofs_clean_journal(sb, false, i, 1);
 	}
-	duofs_clean_journal(sb, true, 1);
+
+	for (i = 0; i < sbi->cpus; i++)
+		duofs_clean_journal(sb, true, i, 1);
+
 	duofs_dbg_trans("Exiting log cleaner thread\n");
 	return 0;
 }
@@ -440,13 +445,20 @@ static int duofs_journal_cleaner_run(struct super_block *sb)
 int duofs_journal_soft_init(struct super_block *sb)
 {
 	struct duofs_sb_info *sbi = DUOFS_SB(sb);
-	duofs_journal_t *journal = duofs_get_journal(sb);
+	duofs_journal_t *journal = duofs_get_journal(sb, 0);
+	int i;
 
-	sbi->next_transaction_id = 0;
-	sbi->journal_base_addr = duofs_get_block(sb,le64_to_cpu(journal->base));
+	atomic64_set(&sbi->next_transaction_id, 0);
 	sbi->jsize = le32_to_cpu(journal->size);
-	mutex_init(&sbi->journal_mutex);
-	sbi->redo_log = !!le16_to_cpu(journal->redo_logging);
+	sbi->journal_mutex = (struct mutex *)kmalloc(sizeof(struct mutex) * sbi->cpus,
+						     GFP_KERNEL);
+
+	for (i = 0; i < sbi->cpus; i++) {
+		journal = duofs_get_journal(sb, i);
+		sbi->journal_base_addr[i] = duofs_get_block(sb,le64_to_cpu(journal->base));
+		mutex_init(&(sbi->journal_mutex[i]));
+		sbi->redo_log = !!le16_to_cpu(journal->redo_logging);
+	}
 
 	return duofs_journal_cleaner_run(sb);
 }
@@ -455,21 +467,27 @@ int duofs_journal_hard_init(struct super_block *sb, uint64_t base,
 	uint32_t size)
 {
 	struct duofs_sb_info *sbi = DUOFS_SB(sb);
-	duofs_journal_t *journal = duofs_get_journal(sb);
+	duofs_journal_t *journal;
+	int i;
 
-	duofs_memunlock_range(sb, journal, sizeof(*journal));
-	journal->base = cpu_to_le64(base);
-	journal->size = cpu_to_le32(size);
-	journal->gen_id = cpu_to_le16(1);
-	journal->head = journal->tail = 0;
-	/* lets do Undo logging for now */
-	journal->redo_logging = 0;
-	duofs_memlock_range(sb, journal, sizeof(*journal));
+	sbi->journal_base_addr = (void **) kmalloc(sizeof(void*), GFP_KERNEL);
+	for (i = 0; i < sbi->cpus; i++) {
+		journal = duofs_get_journal(sb, i);
 
-	sbi->journal_base_addr = duofs_get_block(sb, base);
-	duofs_memunlock_range(sb, sbi->journal_base_addr, size);
-	memset_nt(sbi->journal_base_addr, 0, size);
-	duofs_memlock_range(sb, sbi->journal_base_addr, size);
+		duofs_memunlock_range(sb, journal, sizeof(*journal));
+		journal->base = cpu_to_le64(base) + (size*i);
+		journal->size = cpu_to_le32(size);
+		journal->gen_id = cpu_to_le16(1);
+		journal->head = journal->tail = 0;
+		/* lets do Undo logging for now */
+		journal->redo_logging = 0;
+		duofs_memlock_range(sb, journal, sizeof(*journal));
+
+		sbi->journal_base_addr[i] = duofs_get_block(sb, base + (size*i));
+		duofs_memunlock_range(sb, sbi->journal_base_addr[i], size);
+		memset_nt(sbi->journal_base_addr[i], 0, size);
+		duofs_memlock_range(sb, sbi->journal_base_addr[i], size);
+	}
 
 	return duofs_journal_soft_init(sb);
 }
@@ -496,32 +514,25 @@ inline duofs_transaction_t *duofs_current_transaction(void)
 	return (duofs_transaction_t *)current->journal_info;
 }
 
-static int duofs_free_logentries(struct super_block *sb, int max_log_entries)
+static int duofs_free_logentries(struct super_block *sb, int max_log_entries, int cpu)
 {
 	int freed_entries = 0;
 
-	freed_entries = duofs_clean_journal(sb, false, 0);
+	freed_entries = duofs_clean_journal(sb, false, cpu, 0);
 	return LOGENTRY_SIZE * freed_entries;
 }
 
 duofs_transaction_t *duofs_new_transaction(struct super_block *sb,
-		int max_log_entries)
+					   int max_log_entries, int cpu)
 {
-	duofs_journal_t *journal = duofs_get_journal(sb);
+	duofs_journal_t *journal = duofs_get_journal(sb, cpu);
 	struct duofs_sb_info *sbi = DUOFS_SB(sb);
 	duofs_transaction_t *trans;
 	uint32_t head, tail, req_size, avail_size, freed_size;
 	uint64_t base;
 	int retry = 0;
 	timing_t log_time;
-#if 0
-	trans = duofs_current_transaction();
 
-	if (trans) {
-		BUG_ON(trans->t_journal != journal);
-		return trans;
-	}
-#endif
 	/* If it is an undo log, need one more log-entry for commit record */
 	DUOFS_START_TIMING(new_trans_t, log_time);
 
@@ -538,11 +549,11 @@ duofs_transaction_t *duofs_new_transaction(struct super_block *sb,
 	trans->t_journal = journal;
 	req_size = max_log_entries << LESIZE_SHIFT;
 
-	mutex_lock(&sbi->journal_mutex);
+	mutex_lock(&sbi->journal_mutex[cpu]);
 
 	tail = le32_to_cpu(journal->tail);
 	head = le32_to_cpu(journal->head);
-	trans->transaction_id = sbi->next_transaction_id++;
+	trans->transaction_id = atomic64_fetch_add(1, &sbi->next_transaction_id);
 again:
 	trans->gen_id = le16_to_cpu(journal->gen_id);
 	avail_size = (tail >= head) ?
@@ -554,7 +565,7 @@ again:
 		freed_size = 0;
 		for (retry = 0; retry < 3; retry++) {
 			freed_size += duofs_free_logentries(sb,
-						max_log_entries);
+							    max_log_entries, cpu);
 			if ((avail_size + freed_size) >= req_size)
 				break;
 		}
@@ -578,14 +589,14 @@ again:
 		duofs_memlock_range(sb, journal, sizeof(*journal));
 		duofs_dbg_trans("journal wrapped. tail %x gid %d cur tid %d\n",
 			le32_to_cpu(journal->tail),le16_to_cpu(journal->gen_id),
-				sbi->next_transaction_id - 1);
+				sbi->next_transaction_id.counter - 1);
 		goto again;
 	} else {
 		journal->tail = cpu_to_le32(tail);
 		duofs_memlock_range(sb, journal, sizeof(*journal));
 	}
 	duofs_flush_buffer(&journal->tail, sizeof(u64), false);
-	mutex_unlock(&sbi->journal_mutex);
+	mutex_unlock(&sbi->journal_mutex[cpu]);
 
 	avail_size = avail_size - req_size;
 	/* wake up the log cleaner if required */
@@ -601,7 +612,7 @@ again:
 	DUOFS_END_TIMING(new_trans_t, log_time);
 	return trans;
 journal_full:
-	mutex_unlock(&sbi->journal_mutex);
+	mutex_unlock(&sbi->journal_mutex[cpu]);
 	duofs_err(sb, "Journal full. base %llx sz %x head:tail %x:%x ncl %x\n",
 		le64_to_cpu(journal->base), le32_to_cpu(journal->size),
 		le32_to_cpu(journal->head), le32_to_cpu(journal->tail),
@@ -822,7 +833,7 @@ static void duofs_forward_journal(struct super_block *sb, struct duofs_sb_info
 static int duofs_recover_undo_journal(struct super_block *sb)
 {
 	struct duofs_sb_info *sbi = DUOFS_SB(sb);
-	duofs_journal_t *journal = duofs_get_journal(sb);
+	duofs_journal_t *journal = duofs_get_journal(sb, 0);
 	uint32_t tail = le32_to_cpu(journal->tail);
 	uint32_t head = le32_to_cpu(journal->head);
 	uint16_t gen_id = le16_to_cpu(journal->gen_id);
@@ -854,7 +865,7 @@ static int duofs_recover_undo_journal(struct super_block *sb)
 static int duofs_recover_redo_journal(struct super_block *sb)
 {
 	struct duofs_sb_info *sbi = DUOFS_SB(sb);
-	duofs_journal_t *journal = duofs_get_journal(sb);
+	duofs_journal_t *journal = duofs_get_journal(sb, 0);
 	uint32_t tail = le32_to_cpu(journal->tail);
 	uint32_t head = le32_to_cpu(journal->head);
 	uint16_t gen_id = le16_to_cpu(journal->gen_id);
@@ -891,7 +902,7 @@ static int duofs_recover_redo_journal(struct super_block *sb)
 int duofs_recover_journal(struct super_block *sb)
 {
 	struct duofs_sb_info *sbi = DUOFS_SB(sb);
-	duofs_journal_t *journal = duofs_get_journal(sb);
+	duofs_journal_t *journal = duofs_get_journal(sb, 0);
 	uint32_t tail = le32_to_cpu(journal->tail);
 	uint32_t head = le32_to_cpu(journal->head);
 	uint16_t gen_id = le16_to_cpu(journal->gen_id);

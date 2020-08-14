@@ -1015,7 +1015,7 @@ static int duofs_alloc_inode_table(struct super_block *sb)
 					    1, i);
 
 		duofs_dbg_verbose("%s: allocated block @ 0x%lx\n", __func__,
-				 blocknr);
+				  blocknr);
 
 		if (allocated != 1 || blocknr == 0)
 			return -ENOSPC;
@@ -1279,7 +1279,7 @@ static int duofs_free_inode(struct inode *inode)
 
 	pi = duofs_get_inode(sb, inode->i_ino);
 
-	trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES);
+	trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES, duofs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		err = PTR_ERR(trans);
 		goto out;
@@ -1540,7 +1540,7 @@ static int duofs_increase_inode_table_size(struct super_block *sb)
 
 #if 0
 	/* 1 log entry for inode-table inode, 1 lentry for inode-table b-tree */
-	trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES);
+	trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES, duofs_get_cpuid(sb));
 	if (IS_ERR(trans))
 		return PTR_ERR(trans);
 
@@ -2019,7 +2019,7 @@ int duofs_notify_change(struct dentry *dentry, struct iattr *attr)
 
 	BUG_ON(duofs_current_transaction());
 	/* multiple fields are modified. Use a transaction for atomicity */
-	trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES);
+	trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES, duofs_get_cpuid(sb));
 	if (IS_ERR(trans))
 		return PTR_ERR(trans);
 	duofs_add_logentry(sb, trans, pi, sizeof(*pi), LE_DATA);

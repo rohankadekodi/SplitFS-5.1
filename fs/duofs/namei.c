@@ -153,7 +153,7 @@ static int duofs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 	 * inode's b-tree, 2 lentries for logging dir entry
 	 */
 	trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES * 2 +
-		MAX_DIRENTRY_LENTRIES);
+				      MAX_DIRENTRY_LENTRIES, duofs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		err = PTR_ERR(trans);
 		goto out;
@@ -193,7 +193,7 @@ static int duofs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode,
 	 * inode's b-tree, 2 lentries for logging dir entry
 	 */
 	trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES * 2 +
-			MAX_DIRENTRY_LENTRIES);
+				      MAX_DIRENTRY_LENTRIES, duofs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		err = PTR_ERR(trans);
 		goto out;
@@ -236,7 +236,7 @@ static int duofs_symlink(struct inode *dir, struct dentry *dentry,
 	 * inode's b-tree, 2 lentries for logging dir entry
 	 */
 	trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES * 2 +
-			MAX_DIRENTRY_LENTRIES);
+				      MAX_DIRENTRY_LENTRIES, duofs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		err = PTR_ERR(trans);
 		goto out;
@@ -291,7 +291,7 @@ static int duofs_link(struct dentry *dest_dentry, struct inode *dir,
 		return -EMLINK;
 
 	trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES * 2 +
-			MAX_DIRENTRY_LENTRIES);
+				      MAX_DIRENTRY_LENTRIES, duofs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		err = PTR_ERR(trans);
 		goto out;
@@ -334,7 +334,7 @@ static int duofs_unlink(struct inode *dir, struct dentry *dentry)
 	DUOFS_START_TIMING(unlink_t, unlink_time);
 
 	trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES * 2 +
-		MAX_DIRENTRY_LENTRIES);
+				      MAX_DIRENTRY_LENTRIES, duofs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		retval = PTR_ERR(trans);
 		goto out;
@@ -384,7 +384,7 @@ static int duofs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 		goto out;
 
 	trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES * 2 +
-			MAX_DIRENTRY_LENTRIES);
+				      MAX_DIRENTRY_LENTRIES, duofs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		err = PTR_ERR(trans);
 		goto out;
@@ -514,7 +514,7 @@ static int duofs_rmdir(struct inode *dir, struct dentry *dentry)
 		duofs_dbg("empty directory has nlink!=2 (%d)", inode->i_nlink);
 
 	trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES * 2 +
-			MAX_DIRENTRY_LENTRIES);
+				      MAX_DIRENTRY_LENTRIES, duofs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		err = PTR_ERR(trans);
 		return err;
@@ -569,7 +569,7 @@ static int duofs_rename(struct inode *old_dir,
 	duofs_dbg_verbose("%s: rename %s to %s\n", __func__,
 			old_dentry->d_name.name, new_dentry->d_name.name);
 	trans = duofs_new_transaction(sb, MAX_INODE_LENTRIES * 4 +
-			MAX_DIRENTRY_LENTRIES * 2);
+				      MAX_DIRENTRY_LENTRIES * 2, duofs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		return PTR_ERR(trans);
 	}

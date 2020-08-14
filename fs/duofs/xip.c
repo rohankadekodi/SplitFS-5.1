@@ -702,16 +702,16 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	end_blk = start_blk + num_blocks - 1;
 
 	if (!(strong_guarantees && pos < i_size_read(inode))) {
-		num_blocks_found = duofs_find_data_blocks(inode, start_blk, &block, 1);
+		num_blocks_found = pmfs_find_data_blocks(inode, start_blk, &block, 1);
 
 		/* Referring to the inode's block size, not 4K */
 		same_block = (((count + offset - 1) >>
-			       duofs_inode_blk_shift(pi)) == 0) ? 1 : 0;
+			       pmfs_inode_blk_shift(pi)) == 0) ? 1 : 0;
 		if (block && same_block) {
-			DUOFS_START_TIMING(xip_write_fast_t, xip_write_fast_time);
-			ret = duofs_file_write_fast(sb, inode, pi, buf, count, pos,
+			PMFS_START_TIMING(xip_write_fast_t, xip_write_fast_time);
+			ret = pmfs_file_write_fast(sb, inode, pi, buf, count, pos,
 						    ppos, block);
-			DUOFS_END_TIMING(xip_write_fast_t, xip_write_fast_time);
+			PMFS_END_TIMING(xip_write_fast_t, xip_write_fast_time);
 			goto out;
 		}
 	}

@@ -130,6 +130,12 @@ static inline struct nova_inode_info *NOVA_I(struct inode *inode)
 	return container_of(inode, struct nova_inode_info, vfs_inode);
 }
 
+static inline struct nova_inode_info_header *NOVA_IH(struct inode *inode)
+{
+	struct nova_inode_info *si = NOVA_I(inode);
+	return &si->header;
+}
+
 static inline struct nova_inode *nova_get_alter_inode(struct super_block *sb,
 	struct inode *inode)
 {
@@ -162,7 +168,7 @@ static inline int nova_update_alter_inode(struct super_block *sb,
 	if (!alter_pi)
 		return -EINVAL;
 
-	memcpy_to_pmem_nocache(sb, alter_pi, pi, sizeof(struct nova_inode));
+	memcpy_to_pmem_nocache(alter_pi, pi, sizeof(struct nova_inode));
 	return 0;
 }
 
@@ -202,7 +208,7 @@ static inline int nova_check_inode_checksum(struct nova_inode *pi)
 
 static inline void nova_update_tail(struct nova_inode *pi, u64 new_tail)
 {
-	timing_t update_time;
+	INIT_TIMING(update_time);
 
 	NOVA_START_TIMING(update_tail_t, update_time);
 
@@ -215,7 +221,7 @@ static inline void nova_update_tail(struct nova_inode *pi, u64 new_tail)
 
 static inline void nova_update_alter_tail(struct nova_inode *pi, u64 new_tail)
 {
-	timing_t update_time;
+	INIT_TIMING(update_time);
 
 	if (metadata_csum == 0)
 		return;

@@ -21,7 +21,7 @@ struct nova_super_block {
 	__le32		s_padding32;
 	__le32		s_blocksize;		/* blocksize in bytes */
 	__le64		s_size;			/* total size of fs in bytes */
-	__le64          s_size_2;
+	__le64      s_size_2;
 	char		s_volume_name[16];	/* volume name */
 
 	/* all the dynamic fields should go here */
@@ -105,7 +105,7 @@ struct nova_sb_info {
 	phys_addr_t	phys_addr;
 	phys_addr_t	phys_addr_2;
 	void		*virt_addr;
-	void            *virt_addr_2;
+	void        *virt_addr_2;
 	void		*replica_reserved_inodes_addr;
 	void		*replica_sb_addr;
 

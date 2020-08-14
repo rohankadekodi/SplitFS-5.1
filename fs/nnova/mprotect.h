@@ -31,6 +31,7 @@ static inline int nova_range_check(struct super_block *sb, void *p,
 					 unsigned long len)
 {
 	struct nova_sb_info *sbi = NOVA_SB(sb);
+
 	unsigned long first_virt_end = (unsigned long) sbi->virt_addr + (unsigned long) sbi->initsize;
 	unsigned long second_virt_end = (unsigned long) sbi->virt_addr_2 + (unsigned long) sbi->initsize_2;
 	unsigned long first_virt_start = (unsigned long) sbi->virt_addr;

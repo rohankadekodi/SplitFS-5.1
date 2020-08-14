@@ -42,6 +42,7 @@
 #define NOVA_MOUNT_HUGEMMAP     0x000080    /* Huge mappings with mmap */
 #define NOVA_MOUNT_HUGEIOREMAP  0x000100    /* Huge mappings with ioremap */
 #define NOVA_MOUNT_FORMAT       0x000200    /* was FS formatted on mount? */
+#define NOVA_MOUNT_DATA_COW     0x000400    /* Copy-on-write for data integrity */
 
 /*
  * Maximal count of links to a file
@@ -85,13 +86,7 @@ static inline bool arch_has_clwb(void)
 	return static_cpu_has(X86_FEATURE_CLWB);
 }
 
-static inline bool arch_has_clflushopt(void)
-{
-    return static_cpu_has(X86_FEATURE_CLFLUSHOPT);
-}
-
 extern int support_clwb;
-extern int support_clflushopt;
 
 #define _mm_clflush(addr)\
 	asm volatile("clflush %0" : "+m" (*(volatile char *)(addr)))
@@ -113,68 +108,18 @@ static inline void PERSISTENT_BARRIER(void)
 	asm volatile ("sfence\n" : : );
 }
 
-/* Rohan NVM latency emulation */
-// void perfmodel_add_delay(int read, size_t size);
-// #define NVM_LATENCY     100
-
-/* [Sekwon Lee] Source codes to inject NVM write latency */
-/*
-#define NVM_LATENCY     100
-static unsigned long long nvmfs_cpu_freq_mhz = 3600;
-typedef uint64_t hrtime_t;
-
-#define NS2CYCLE(__ns) ((__ns) * nvmfs_cpu_freq_mhz / 1000LLU)
-
-static inline unsigned long long asm_rdtsc(void)
-{
-    unsigned hi, lo;
-    __asm__ __volatile__ ("rdtsc" : "=a"(lo), "=d"(hi));
-    return ((unsigned long long)lo)|(((unsigned long long)hi)<<32);
-}
-
-static inline void emulate_latency_ns(long long ns)
-{
-    hrtime_t cycles;
-    hrtime_t start;
-    hrtime_t stop;
-
-    start = asm_rdtsc();
-    cycles = NS2CYCLE(ns);
-
-    do {
-        stop = asm_rdtsc();
-    } while (stop - start < cycles);
-}
-*/
-/*  [Sekwon Lee] *****************************************/
-
 static inline void nova_flush_buffer(void *buf, uint32_t len, bool fence)
 {
 	uint32_t i;
-	
+
 	len = len + ((unsigned long)(buf) & (CACHELINE_SIZE - 1));
 	if (support_clwb) {
-		for (i = 0; i < len; i += CACHELINE_SIZE) {
+		for (i = 0; i < len; i += CACHELINE_SIZE)
 			_mm_clwb(buf + i);
-			//emulate_latency_ns(NVM_LATENCY);
-		}
-	} else if (support_clflushopt){
-		for (i = 0; i < len; i += CACHELINE_SIZE) {
-			_mm_clflushopt(buf + i);
-			//emulate_latency_ns(NVM_LATENCY);
-		}
 	} else {
-		for (i = 0; i < len; i += CACHELINE_SIZE) {
+		for (i = 0; i < len; i += CACHELINE_SIZE)
 			_mm_clflush(buf + i);
-			//emulate_latency_ns(NVM_LATENCY);
-		}
 	}
-	
-	// Rohan add write delay
-#ifdef CONFIG_LEDGER
-	perfmodel_add_delay(0, len);
-#endif
-	
 	/* Do a fence only if asked. We often don't need to do a fence
 	 * immediately after clflush because even if we get context switched
 	 * between clflush and subsequent fence, the context switch operation

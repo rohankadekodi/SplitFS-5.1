@@ -118,21 +118,19 @@ static loff_t nova_llseek(struct file *file, loff_t offset, int origin)
  */
 static int nova_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 {
-	/*
 	struct address_space *mapping = file->f_mapping;
 	struct inode *inode = file->f_path.dentry->d_inode;
 	struct super_block *sb = inode->i_sb;
 	unsigned long start_pgoff, end_pgoff;
 	int ret = 0;
-	timing_t fsync_time;
+	INIT_TIMING(fsync_time);
 
 	NOVA_START_TIMING(fsync_t, fsync_time);
 
 	if (datasync)
 		NOVA_STATS_ADD(fdatasync, 1);
-	*/
+
 	/* No need to flush if the file is not mmaped */
-	/*
 	if (!mapping_mapped(mapping))
 		goto persist;
 
@@ -140,13 +138,12 @@ static int nova_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 	end_pgoff = (end + 1) >> PAGE_SHIFT;
 	nova_dbgv("%s: msync pgoff range %lu to %lu\n",
 			__func__, start_pgoff, end_pgoff);
-	*/
+
 	/*
 	 * Set csum and parity.
 	 * We do not protect data integrity during mmap, but we have to
 	 * update csum here since msync clears dirty bit.
 	 */
-	/*
 	nova_reset_mapping_csum_parity(sb, inode, mapping,
 					start_pgoff, end_pgoff);
 
@@ -157,8 +154,6 @@ persist:
 	NOVA_END_TIMING(fsync_t, fsync_time);
 
 	return ret;
-	*/
-	return 0;
 }
 
 /* This callback is called when a file is closed */
@@ -196,7 +191,7 @@ static long nova_fallocate(struct file *file, int mode, loff_t offset,
 	int blocksize_mask;
 	int allocated = 0;
 	bool update_log = false;
-	timing_t fallocate_time;
+	INIT_TIMING(fallocate_time);
 	u64 begin_tail = 0;
 	u64 epoch_id;
 	u32 time;
@@ -373,7 +368,7 @@ static ssize_t nova_dax_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
 	struct inode *inode = iocb->ki_filp->f_mapping->host;
 	ssize_t ret;
-	timing_t read_iter_time;
+	INIT_TIMING(read_iter_time);
 
 	if (!iov_iter_count(to))
 		return 0;
@@ -422,7 +417,7 @@ static ssize_t nova_dax_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	loff_t offset;
 	size_t count;
 	ssize_t ret;
-	timing_t write_iter_time;
+	INIT_TIMING(write_iter_time);
 
 	NOVA_START_TIMING(write_iter_t, write_iter_time);
 	inode_lock(inode);
@@ -472,8 +467,7 @@ do_dax_mapping_read(struct file *filp, char __user *buf,
 	unsigned long offset;
 	loff_t isize, pos;
 	size_t copied = 0, error = 0;
-	timing_t memcpy_time;
-	int cpuid = nova_get_cpuid(sb);
+	INIT_TIMING(memcpy_time);
 
 	pos = *ppos;
 	index = pos >> PAGE_SHIFT;
@@ -567,28 +561,10 @@ memcpy:
 skip_verify:
 		NOVA_START_TIMING(memcpy_r_nvmm_t, memcpy_time);
 
-		if (!zero) {
+		if (!zero)
 			left = __copy_to_user(buf + copied,
 						dax_mem + offset, nr);
-
-			if ((unsigned long) (dax_mem) + offset >= (unsigned long) NOVA_SB(sb)->virt_addr_2) {
-				if (cpuid < 24 || (cpuid >= 47 && cpuid < 72)) {
-					NOVA_STATS_ADD(remote_reads_bytes, nr);
-				} else {
-					NOVA_STATS_ADD(local_reads_bytes, nr);
-				}		
-			} else {
-				if (cpuid >= 72 || (cpuid >= 24 && cpuid < 48)) {
-					NOVA_STATS_ADD(remote_reads_bytes, nr);
-				} else {
-					NOVA_STATS_ADD(local_reads_bytes, nr);
-				}		
-			}
-			// Rohan add read delay
-#ifdef CONFIG_LEDGER
-			perfmodel_add_delay(1, nr);
-#endif
-		} else
+		else
 			left = __clear_user(buf + copied, nr);
 
 		NOVA_END_TIMING(memcpy_r_nvmm_t, memcpy_time);
@@ -627,7 +603,7 @@ static ssize_t nova_dax_file_read(struct file *filp, char __user *buf,
 {
 	struct inode *inode = filp->f_mapping->host;
 	ssize_t res;
-	timing_t dax_read_time;
+	INIT_TIMING(dax_read_time);
 
 	NOVA_START_TIMING(dax_read_t, dax_read_time);
 	inode_lock_shared(inode);
@@ -663,15 +639,15 @@ static ssize_t do_nova_cow_file_write(struct file *filp,
 	u64 file_size;
 	size_t bytes;
 	long status = 0;
-	timing_t cow_write_time, memcpy_time;
+	INIT_TIMING(cow_write_time);
+	INIT_TIMING(memcpy_time);
 	unsigned long step = 0;
 	ssize_t ret;
 	u64 begin_tail = 0;
 	int try_inplace = 0;
 	u64 epoch_id;
 	u32 time;
-	int cpuid = nova_get_cpuid(sb);
-	int remote_write_flag = 0;
+
 
 	if (len == 0)
 		return 0;
@@ -754,7 +730,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp,
 			bytes = count;
 
 		kmem = nova_get_block(inode->i_sb,
-			     nova_get_block_off(sb, blocknr, sih->i_blk_type));		
+			     nova_get_block_off(sb, blocknr, sih->i_blk_type));
 
 		if (offset || ((offset + bytes) & (PAGE_SIZE - 1)) != 0)  {
 			ret = nova_handle_head_tail_blocks(sb, inode, pos,
@@ -766,7 +742,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp,
 		//		nova_dbg("Write: %p\n", kmem);
 		NOVA_START_TIMING(memcpy_w_nvmm_t, memcpy_time);
 		nova_memunlock_range(sb, kmem + offset, bytes);
-		copied = bytes - memcpy_to_pmem_nocache(sb, kmem + offset,
+		copied = bytes - memcpy_to_pmem_nocache(kmem + offset,
 						buf, bytes);
 		nova_memlock_range(sb, kmem + offset, bytes);
 		NOVA_END_TIMING(memcpy_w_nvmm_t, memcpy_time);
@@ -865,7 +841,8 @@ ssize_t nova_cow_file_write(struct file *filp,
 	struct address_space *mapping = filp->f_mapping;
 	struct inode *inode = mapping->host;
 	int ret;
-	timing_t time;
+	INIT_TIMING(time);
+
 
 	if (len == 0)
 		return 0;
@@ -888,19 +865,25 @@ ssize_t nova_cow_file_write(struct file *filp,
 static ssize_t nova_dax_file_write(struct file *filp, const char __user *buf,
 				   size_t len, loff_t *ppos)
 {
-	if (inplace_data_updates)
-		return nova_inplace_file_write(filp, buf, len, ppos);
-	else
+	struct address_space *mapping = filp->f_mapping;
+	struct inode *inode = mapping->host;
+
+	if (test_opt(inode->i_sb, DATA_COW))
 		return nova_cow_file_write(filp, buf, len, ppos);
+	else
+		return nova_inplace_file_write(filp, buf, len, ppos);
 }
 
 static ssize_t do_nova_dax_file_write(struct file *filp, const char __user *buf,
 				   size_t len, loff_t *ppos)
 {
-	if (inplace_data_updates)
-		return do_nova_inplace_file_write(filp, buf, len, ppos);
-	else
+	struct address_space *mapping = filp->f_mapping;
+	struct inode *inode = mapping->host;
+
+	if (test_opt(inode->i_sb, DATA_COW))
 		return do_nova_cow_file_write(filp, buf, len, ppos);
+	else
+		return do_nova_inplace_file_write(filp, buf, len, ppos);
 }
 
 
@@ -954,7 +937,7 @@ static ssize_t nova_wrap_rw_iter(struct kiocb *iocb, struct iov_iter *iter)
 	unsigned long seg;
 	unsigned long nr_segs = iter->nr_segs;
 	const struct iovec *iv = iter->iov;
-	timing_t wrap_iter_time;
+	INIT_TIMING(wrap_iter_time);
 
 	NOVA_START_TIMING(wrap_iter_t, wrap_iter_time);
 

@@ -67,7 +67,7 @@ static int to_pmem_nocache_call(char *dst, char *src, size_t off, size_t size)
 {
 	/* pin src address to cache most reads, if size fits */
 	/* dst address should point to pmem */
-	memcpy_to_pmem_nocache(NULL, dst + off, src, size);
+	memcpy_to_pmem_nocache(dst + off, src, size);
 	return 0;
 }
 
@@ -364,7 +364,7 @@ static int nova_test_func_perf(struct super_block *sb, unsigned int func_id,
 	const memcpy_call_t *fmemcpy = NULL;
 	const checksum_call_t *fchecksum = NULL;
 	const raid5_call_t *fraid5 = NULL;
-	timing_t perf_time;
+	INIT_TIMING(perf_time);
 
 	cpu = get_cpu(); /* get cpu id and disable preemption */
 	reps = poolsize / size; /* raid calls will adjust this number */

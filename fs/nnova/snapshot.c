@@ -340,7 +340,7 @@ static int nova_initialize_snapshot_info(struct super_block *sb,
 	struct snapshot_list *list;
 	int i;
 	int ret;
-	timing_t init_snapshot_time;
+	INIT_TIMING(init_snapshot_time);
 
 	NOVA_START_TIMING(init_snapshot_info_t, init_snapshot_time);
 
@@ -496,7 +496,7 @@ static int nova_append_snapshot_file_write_entry(struct super_block *sb,
 {
 	struct snapshot_file_write_entry entry;
 	int ret;
-	timing_t append_time;
+	INIT_TIMING(append_time);
 
 	if (!info) {
 		nova_dbg("%s: Snapshot info not found\n", __func__);
@@ -544,7 +544,7 @@ static int nova_append_snapshot_inode_entry(struct super_block *sb,
 {
 	struct snapshot_inode_entry entry;
 	int ret;
-	timing_t append_time;
+	INIT_TIMING(append_time);
 
 	if (!info) {
 		nova_dbg("%s: Snapshot info not found\n", __func__);
@@ -912,7 +912,7 @@ int nova_create_snapshot(struct super_block *sb)
 	u64 timestamp = 0;
 	u64 epoch_id;
 	int ret;
-	timing_t create_snapshot_time;
+	INIT_TIMING(create_snapshot_time);
 	struct timespec64 now;
 
 	NOVA_START_TIMING(create_snapshot_t, create_snapshot_time);
@@ -930,6 +930,7 @@ int nova_create_snapshot(struct super_block *sb)
 	 * snapshot that is being created.
 	 */
 	nova_info("%s: epoch id %llu\n", __func__, epoch_id);
+
 
 	ktime_get_coarse_real_ts64(&now);
 	timestamp = timespec64_trunc(now,
@@ -1047,7 +1048,7 @@ int nova_delete_snapshot(struct super_block *sb, u64 epoch_id)
 	struct snapshot_info *next = NULL;
 	int delete = 0;
 	int ret;
-	timing_t delete_snapshot_time;
+	INIT_TIMING(delete_snapshot_time);
 
 	NOVA_START_TIMING(delete_snapshot_t, delete_snapshot_time);
 	mutex_lock(&sbi->s_lock);
@@ -1056,7 +1057,9 @@ int nova_delete_snapshot(struct super_block *sb, u64 epoch_id)
 	ret = nova_find_target_snapshot_info(sb, epoch_id, &info);
 	if (ret != 1 || info->epoch_id != epoch_id) {
 		nova_dbg("%s: Snapshot info not found\n", __func__);
-		goto out;
+		mutex_unlock(&sbi->s_lock);
+		NOVA_END_TIMING(delete_snapshot_t, delete_snapshot_time);
+		return 0;
 	}
 
 	next = nova_find_next_snapshot_info(sb, info);
@@ -1072,7 +1075,6 @@ int nova_delete_snapshot(struct super_block *sb, u64 epoch_id)
 
 	nova_invalidate_snapshot_entry(sb, info);
 
-out:
 	sbi->num_snapshots--;
 	mutex_unlock(&sbi->s_lock);
 
@@ -1105,7 +1107,7 @@ static int nova_copy_snapshot_list_to_nvmm(struct super_block *sb,
 	for (i = 0; i < list->num_pages; i++) {
 		/* Leave next_page field alone */
 		nova_memunlock_block(sb, curr_nvmm_addr);
-		memcpy_to_pmem_nocache(sb, curr_nvmm_addr, (void *)curr_dram_addr,
+		memcpy_to_pmem_nocache(curr_nvmm_addr, (void *)curr_dram_addr,
 						LOG_BLOCK_TAIL);
 		nova_memlock_block(sb, curr_nvmm_addr);
 

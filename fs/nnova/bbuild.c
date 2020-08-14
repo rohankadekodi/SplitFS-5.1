@@ -94,7 +94,7 @@ static inline int get_block_cpuid(struct nova_sb_info *sbi,
 	int cpuid = 0;
 	unsigned long tmp_blocknr = 0;
 	struct free_list *free_list;
-	
+
 	if (blocknr < sbi->num_blocks) {
 		idx = blocknr / sbi->per_list_blocks;
 		free_list = nova_get_free_list(sbi->sb, idx);
@@ -121,7 +121,6 @@ static inline int get_block_cpuid(struct nova_sb_info *sbi,
 			break;
 		}
 	}
-
 	if (cpuid_opt != cpuid) {
 		printk(KERN_INFO "%s: cpuid_opt = %d, cpuid = %d, blocknr = %lu\n", __func__, cpuid_opt, cpuid, blocknr);
 	}
@@ -129,7 +128,6 @@ static inline int get_block_cpuid(struct nova_sb_info *sbi,
 
 	/*
 	int block_cpu_index = blocknr / sbi->per_list_blocks;
-
 	if (blocknr >= sbi->num_blocks && (block_cpu_index * sbi->per_list_blocks) < sbi->num_blocks)
 		block_cpu_index++;
 	*/
@@ -688,7 +686,7 @@ static void nova_update_4K_map(struct super_block *sb,
 struct scan_bitmap *global_bm[MAX_CPUS];
 
 static int nova_build_blocknode_map(struct super_block *sb,
-				    unsigned long initsize, unsigned long initsize_2)
+	unsigned long initsize, unsigned long initsize_2)
 {
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	struct scan_bitmap *bm;
@@ -703,7 +701,7 @@ static int nova_build_blocknode_map(struct super_block *sb,
 		return -ENOMEM;
 
 	final_bm->scan_bm_4K.bitmap_size =
-		((initsize + initsize_2) >> (PAGE_SHIFT + 0x3));
+				((initsize + initsize_2) >> (PAGE_SHIFT + 0x3));
 
 	/* Alloc memory to hold the block alloc bitmap */
 	final_bm->scan_bm_4K.bitmap = kzalloc(final_bm->scan_bm_4K.bitmap_size,
@@ -780,11 +778,11 @@ static int alloc_bm(struct super_block *sb, unsigned long initsize, unsigned lon
 		global_bm[i] = bm;
 
 		bm->scan_bm_4K.bitmap_size =
-			((initsize + initsize_2) >> (PAGE_SHIFT + 0x3));
+				((initsize + initsize_2) >> (PAGE_SHIFT + 0x3));
 		bm->scan_bm_2M.bitmap_size =
-			((initsize + initsize_2) >> (PAGE_SHIFT_2M + 0x3));
+				((initsize + initsize_2) >> (PAGE_SHIFT_2M + 0x3));
 		bm->scan_bm_1G.bitmap_size =
-			((initsize + initsize_2) >> (PAGE_SHIFT_1G + 0x3));
+				((initsize + initsize_2) >> (PAGE_SHIFT_1G + 0x3));
 
 		/* Alloc memory to hold the block alloc bitmap */
 		bm->scan_bm_4K.bitmap = kzalloc(bm->scan_bm_4K.bitmap_size,
@@ -1576,10 +1574,11 @@ int nova_recovery(struct super_block *sb)
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	struct nova_super_block *super = sbi->nova_sb;
 	unsigned long initsize = le64_to_cpu(super->s_size);
-	unsigned long initsize_2 = le64_to_cpu(super->s_size_2);
 	bool value = false;
 	int ret = 0;
-	timing_t start, end;
+	unsigned long initsize_2 = le64_to_cpu(super->s_size_2);
+	INIT_TIMING(start);
+	INIT_TIMING(end);
 
 	nova_dbgv("%s\n", __func__);
 

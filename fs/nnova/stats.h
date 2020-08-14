@@ -71,7 +71,6 @@ enum timing_category {
 	/* Memory management */
 	mm_title_t,
 	new_blocks_t,
-	zero_t,
 	new_data_blocks_t,
 	new_log_blocks_t,
 	free_blocks_t,
@@ -189,10 +188,6 @@ enum stats_category {
 	dax_new_blocks,
 	inplace_new_blocks,
 	fdatasync,
-	remote_writes_bytes,
-	local_writes_bytes,
-	remote_reads_bytes,
-	local_reads_bytes,
 
 	/* Sentinel */
 	STATS_NUM,
@@ -208,12 +203,14 @@ DECLARE_PER_CPU(u64[STATS_NUM], IOstats_percpu);
 
 typedef struct timespec timing_t;
 
+#define	INIT_TIMING(X)	timing_t X = {0}
+
 #define NOVA_START_TIMING(name, start) \
 	{if (measure_timing) getrawmonotonic(&start); }
 
 #define NOVA_END_TIMING(name, start) \
 	{if (measure_timing) { \
-		timing_t end; \
+		INIT_TIMING(end); \
 		getrawmonotonic(&end); \
 		__this_cpu_add(Timingstats_percpu[name], \
 			(end.tv_sec - start.tv_sec) * 1000000000 + \

@@ -28,6 +28,7 @@
 #include <linux/io.h>
 #include <linux/seq_file.h>
 #include <linux/mount.h>
+#include <uapi/linux/mount.h>
 #include <linux/mm.h>
 #include <linux/ctype.h>
 #include <linux/bitops.h>
@@ -49,8 +50,6 @@ int data_csum;
 int data_parity;
 int dram_struct_csum;
 int support_clwb;
-int support_clflushopt;
-int inplace_data_updates;
 
 module_param(measure_timing, int, 0444);
 MODULE_PARM_DESC(measure_timing, "Timing measurement");
@@ -66,9 +65,6 @@ MODULE_PARM_DESC(data_csum, "Detect corruption of data pages using checksum");
 
 module_param(data_parity, int, 0444);
 MODULE_PARM_DESC(data_parity, "Protect file data using RAID-5 style parity.");
-
-module_param(inplace_data_updates, int, 0444);
-MODULE_PARM_DESC(inplace_data_updates, "Perform data updates in-place (i.e., not atomically)");
 
 module_param(dram_struct_csum, int, 0444);
 MODULE_PARM_DESC(dram_struct_csum, "Protect key DRAM data structures with checksums");
@@ -98,7 +94,7 @@ void nova_error_mng(struct super_block *sb, const char *fmt, ...)
 		panic("nova: panic from previous error\n");
 	if (test_opt(sb, ERRORS_RO)) {
 		printk(KERN_CRIT "nova err: remounting filesystem read-only");
-		sb->s_flags |= SB_RDONLY;
+		sb->s_flags |= MS_RDONLY;
 	}
 }
 
@@ -133,7 +129,7 @@ static int nova_get_nvmm_info(struct super_block *sb,
 			 __func__, ret, sb->s_bdev->bd_super);
 	if (!ret) {
 		nova_err(sb, "device does not support DAX\n");
-		return ret;
+		return -EINVAL;
 	}
 
 	sbi->s_bdev = sb->s_bdev;
@@ -166,10 +162,10 @@ static int nova_get_nvmm_info(struct super_block *sb,
 		return -EINVAL;
 	}
 	printk(KERN_INFO "%s: second direct access returned size = %lu\n", __func__, size2);
-    
+
 	sbi->virt_addr = virt_addr;
 	sbi->virt_addr_2 = virt_addr2;
-	
+
 	if (!sbi->virt_addr) {
 		nova_err(sb, "ioremap of the nova image failed(1)\n");
 		return -EINVAL;
@@ -182,10 +178,12 @@ static int nova_get_nvmm_info(struct super_block *sb,
 	sbi->replica_reserved_inodes_addr = virt_addr2 + size2 -
 			(sbi->tail_reserved_blocks << PAGE_SHIFT);
 	sbi->replica_sb_addr = virt_addr2 + size2 - PAGE_SIZE;
-
+	
 	nova_dbg("%s: dev %s, phys_addr 0x%llx, virt_addr 0x%lx, size %ld, virt_addr_end 0x%lx virt_addr_2 0x%lx, size2 %ld virt_addr_2_end 0x%lx\n",
 		__func__, sbi->s_bdev->bd_disk->disk_name,
-		 sbi->phys_addr, (unsigned long)sbi->virt_addr, sbi->initsize, (unsigned long) sbi->virt_addr + (unsigned long) sbi->initsize, (unsigned long)sbi->virt_addr_2, sbi->initsize_2, (unsigned long) sbi->virt_addr_2 + (unsigned long) sbi->initsize_2);
+		sbi->phys_addr, (unsigned long)sbi->virt_addr, sbi->initsize, 
+		(unsigned long) sbi->virt_addr + (unsigned long) sbi->initsize, (unsigned long)sbi->virt_addr_2, 
+		sbi->initsize_2, (unsigned long) sbi->virt_addr_2 + (unsigned long) sbi->initsize_2);
 
 	return 0;
 }
@@ -205,7 +203,7 @@ static loff_t nova_max_size(int bits)
 
 enum {
 	Opt_bpi, Opt_init, Opt_snapshot, Opt_mode, Opt_uid,
-	Opt_gid, Opt_dax, Opt_wprotect,
+	Opt_gid, Opt_dax, Opt_data_cow, Opt_wprotect,
 	Opt_err_cont, Opt_err_panic, Opt_err_ro,
 	Opt_dbgmask, Opt_err
 };
@@ -218,6 +216,7 @@ static const match_table_t tokens = {
 	{ Opt_uid,	     "uid=%u"		  },
 	{ Opt_gid,	     "gid=%u"		  },
 	{ Opt_dax,	     "dax"		  },
+	{ Opt_data_cow,	     "data_cow"		  },
 	{ Opt_wprotect,	     "wprotect"		  },
 	{ Opt_err_cont,	     "errors=continue"	  },
 	{ Opt_err_panic,     "errors=panic"	  },
@@ -299,6 +298,10 @@ static int nova_parse_options(char *options, struct nova_sb_info *sbi,
 		case Opt_dax:
 			set_opt(sbi->s_mount_opt, DAX);
 			break;
+		case Opt_data_cow:
+			set_opt(sbi->s_mount_opt, DATA_COW);
+			nova_info("Enable copy-on-write updates\n");
+			break;
 		case Opt_wprotect:
 			if (remount)
 				goto bad_opt;
@@ -368,11 +371,11 @@ inline void nova_sync_super(struct super_block *sb)
 
 	super_redund = nova_get_redund_super(sb);
 
-	memcpy_to_pmem_nocache(sb, (void *)super, (void *)sbi->nova_sb,
+	memcpy_to_pmem_nocache((void *)super, (void *)sbi->nova_sb,
 		sizeof(struct nova_super_block));
 	PERSISTENT_BARRIER();
 
-	memcpy_to_pmem_nocache(sb, (void *)super_redund, (void *)sbi->nova_sb,
+	memcpy_to_pmem_nocache((void *)super_redund, (void *)sbi->nova_sb,
 		sizeof(struct nova_super_block));
 	PERSISTENT_BARRIER();
 
@@ -408,7 +411,7 @@ static inline void nova_update_mount_time(struct super_block *sb)
 }
 
 static struct nova_inode *nova_init(struct super_block *sb,
-				    unsigned long size, unsigned long size2)
+				      unsigned long size, unsigned long size2)
 {
 	unsigned long blocksize;
 	struct nova_inode *root_i, *pi;
@@ -416,7 +419,7 @@ static struct nova_inode *nova_init(struct super_block *sb,
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	struct nova_inode_update update;
 	u64 epoch_id;
-	timing_t init_time;
+	INIT_TIMING(init_time);
 
 	NOVA_START_TIMING(new_init_t, init_time);
 	nova_info("creating an empty nova of size %lu\n", size + size2);
@@ -613,7 +616,7 @@ static int nova_fill_super(struct super_block *sb, void *data, int silent)
 	u32 random = 0;
 	int retval = -EINVAL;
 	int i;
-	timing_t mount_time;
+	INIT_TIMING(mount_time);
 
 	NOVA_START_TIMING(mount_t, mount_time);
 
@@ -657,9 +660,9 @@ static int nova_fill_super(struct super_block *sb, void *data, int silent)
 	}
 
 
-	nova_dbg("measure timing %d, metadata checksum %d, inplace update %d, wprotect %d, data checksum %d, data parity %d, DRAM checksum %d\n",
+	nova_dbg("measure timing %d, metadata checksum %d, wprotect %d, data checksum %d, data parity %d, DRAM checksum %d\n",
 		measure_timing, metadata_csum,
-		inplace_data_updates, wprotect,	 data_csum,
+		wprotect,	 data_csum,
 		data_parity, dram_struct_csum);
 
 	get_random_bytes(&random, sizeof(u32));
@@ -719,6 +722,11 @@ static int nova_fill_super(struct super_block *sb, void *data, int silent)
 		nova_err(sb, "%s: Failed to parse nova command line options.",
 			 __func__);
 		goto out;
+	}
+
+	if (sbi->mount_snapshot) {
+		sb->s_flags |= MS_RDONLY;
+		nova_info("Snapshot: mount NOVA read-only\n");
 	}
 
 	if (nova_alloc_block_free_lists(sb)) {
@@ -786,7 +794,7 @@ setup_sb:
 	sb->s_time_gran = 1000000000; // 1 second.
 	sb->s_export_op = &nova_export_ops;
 	sb->s_xattr = NULL;
-	sb->s_flags |= SB_NOSEC;
+	sb->s_flags |= MS_NOSEC;
 
 	/* If the FS was not formatted on this mount, scan the meta-data after
 	 * truncate list has been processed
@@ -810,7 +818,7 @@ setup_sb:
 		goto out;
 	}
 
-	if (!(sb->s_flags & SB_RDONLY))
+	if (!(sb->s_flags & MS_RDONLY))
 		nova_update_mount_time(sb);
 
 	nova_print_curr_epoch_id(sb);
@@ -911,11 +919,11 @@ int nova_remount(struct super_block *sb, int *mntflags, char *data)
 	if (nova_parse_options(data, sbi, 1))
 		goto restore_opt;
 
-	sb->s_flags = (sb->s_flags & ~SB_POSIXACL) |
+	sb->s_flags = (sb->s_flags & ~MS_POSIXACL) |
 		      ((sbi->s_mount_opt & NOVA_MOUNT_POSIX_ACL) ?
-		       SB_POSIXACL : 0);
+		       MS_POSIXACL : 0);
 
-	if ((*mntflags & SB_RDONLY) != (sb->s_flags & SB_RDONLY))
+	if ((*mntflags & MS_RDONLY) != (sb->s_flags & MS_RDONLY))
 		nova_update_mount_time(sb);
 
 	mutex_unlock(&sbi->s_lock);
@@ -1211,18 +1219,14 @@ static const struct export_operations nova_export_ops = {
 static int __init init_nova_fs(void)
 {
 	int rc = 0;
-	timing_t init_time;
+	INIT_TIMING(init_time);
 
 	NOVA_START_TIMING(init_t, init_time);
 	if (arch_has_clwb())
 		support_clwb = 1;
-    if (arch_has_clflushopt())
-        support_clflushopt = 1;
 
 	nova_info("Arch new instructions support: CLWB %s\n",
 			support_clwb ? "YES" : "NO");
-	nova_info("Arch new instructions support: CLFLUSHOPT %s\n",
-			support_clflushopt ? "YES" : "NO");
 
 	nova_proc_root = proc_mkdir(proc_dirname, NULL);
 

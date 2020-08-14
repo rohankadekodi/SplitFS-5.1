@@ -68,7 +68,6 @@ const char *Timingstring[TIMING_NUM] = {
 	/* Memory management */
 	"============== Memory management ===============",
 	"alloc_blocks",
-	"zero_blocks",
 	"new_data_blocks",
 	"new_log_blocks",
 	"free_blocks",
@@ -243,14 +242,6 @@ static void nova_print_IO_stats(struct super_block *sb)
 		IOstats[inplace_write_breaks], Countstats[inplace_write_t] ?
 			IOstats[inplace_write_breaks] /
 			Countstats[inplace_write_t] : 0);
-    nova_info("remote writes bytes %llu\n",
-            IOstats[remote_writes_bytes]);
-    nova_info("local writes bytes %llu\n",
-            IOstats[local_writes_bytes]);
-    nova_info("remote reads bytes %llu\n",
-            IOstats[remote_reads_bytes]);
-    nova_info("local reads bytes %llu\n",
-           IOstats[local_reads_bytes]);
 }
 
 void nova_get_timing_stats(void)

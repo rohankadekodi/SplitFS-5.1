@@ -127,13 +127,15 @@ static void nova_init_free_list(struct super_block *sb,
 	unsigned long per_list_blocks;
 	struct free_list *prev_free_list;
 	unsigned long next_list_end;
+	
 	unsigned long first_virt_start = (unsigned long) sbi->virt_addr;	
-        unsigned long first_virt_end = (unsigned long) sbi->virt_addr + (unsigned long) sbi->initsize;
-        unsigned long second_virt_start = (unsigned long) sbi->virt_addr_2;
-        unsigned long second_virt_end = second_virt_start + (unsigned long) sbi->initsize_2;
+	unsigned long first_virt_end = (unsigned long) sbi->virt_addr + (unsigned long) sbi->initsize;
+	unsigned long second_virt_start = (unsigned long) sbi->virt_addr_2;
+	unsigned long second_virt_end = second_virt_start + (unsigned long) sbi->initsize_2;
 
 	unsigned long second_start = (second_virt_start - first_virt_start) / PAGE_SIZE;
-        unsigned long second_end = second_start + sbi->num_blocks_2;
+	unsigned long second_end = second_start + sbi->num_blocks_2;
+
 
 	per_list_blocks = (sbi->num_blocks + sbi->num_blocks_2) / sbi->cpus;
 
@@ -155,32 +157,31 @@ static void nova_init_free_list(struct super_block *sb,
 			//free_list->block_start = prev_free_list->block_end + 1;
 		}
 	}
-
 	free_list->block_end = free_list->block_start +
 					per_list_blocks - 1;
-
 	if (free_list->block_end < sbi->num_blocks) {
 		next_list_end = (per_list_blocks * (index + 1)) + per_list_blocks;
 		if (next_list_end >= sbi->num_blocks) {
 			free_list->block_end = sbi->num_blocks - 1;
 		}
 	}
+
+	if (free_list->block_end >= second_end) {
+		free_list->block_end = second_end - 1;
+	}
+
+	if (free_list->block_end == second_end - 1) {
+		sbi->cpus = index + 1;
+	}
 	
-        if (free_list->block_end >= second_end) {
-                free_list->block_end = second_end - 1;
-        }
-
-        if (free_list->block_end == second_end - 1) {
-                sbi->cpus = index + 1;
-        }
-
 	if (index == 0)
 		free_list->block_start += sbi->head_reserved_blocks;
 	if (index == sbi->cpus - 1)
 		free_list->block_end -= sbi->tail_reserved_blocks;
 
-	printk(KERN_INFO "%s: index = %d, free_list->block_start = %lu, free_list->block_end = %lu\n", __func__, index, free_list->block_start, free_list->block_end);
-	
+	printk(KERN_INFO "%s: index = %d, free_list->block_start = %lu, free_list->block_end = %lu\n", 
+		__func__, index, free_list->block_start, free_list->block_end);
+
 	nova_data_csum_init_free_list(sb, free_list);
 	nova_data_parity_init_free_list(sb, free_list);
 }
@@ -218,9 +219,8 @@ void nova_init_blockmap(struct super_block *sb, int recovery)
 						free_list->block_start + 1;
 
 			blknode = nova_alloc_blocknode(sb);
-			if (blknode == NULL) {
+			if (blknode == NULL)
 				BUG();
-			}
 			blknode->range_low = free_list->block_start;
 			blknode->range_high = free_list->block_end;
 			nova_update_range_node_checksum(blknode);
@@ -435,17 +435,18 @@ static int nova_free_blocks(struct super_block *sb, unsigned long blocknr,
 	int cpuid = 0;
 	int new_node_used = 0;
 	int ret;
-	timing_t free_time;
+	INIT_TIMING(free_time);
+
 	int idx = 0;
 	unsigned long tmp_blocknr;
-	
+
+
 	if (num <= 0) {
 		nova_dbg("%s ERROR: free %d\n", __func__, num);
 		return -EINVAL;
 	}
 
 	NOVA_START_TIMING(free_blocks_t, free_time);
-
 	if (blocknr < sbi->num_blocks) {
 		idx = blocknr / sbi->per_list_blocks;
 		free_list = nova_get_free_list(sb, idx);
@@ -474,7 +475,7 @@ static int nova_free_blocks(struct super_block *sb, unsigned long blocknr,
 		}
 	}
 	*/
-	    	
+
 	/* Pre-allocate blocknode */
 	curr_node = nova_alloc_blocknode(sb);
 	if (curr_node == NULL) {
@@ -580,7 +581,7 @@ int nova_free_data_blocks(struct super_block *sb,
 	struct nova_inode_info_header *sih, unsigned long blocknr, int num)
 {
 	int ret;
-	timing_t free_time;
+	INIT_TIMING(free_time);
 
 	nova_dbgv("Inode %lu: free %d data block from %lu to %lu\n",
 			sih->ino, num, blocknr, blocknr + num - 1);
@@ -605,7 +606,7 @@ int nova_free_log_blocks(struct super_block *sb,
 	struct nova_inode_info_header *sih, unsigned long blocknr, int num)
 {
 	int ret;
-	timing_t free_time;
+	INIT_TIMING(free_time);
 
 	nova_dbgv("Inode %lu: free %d log block from %lu to %lu\n",
 			sih->ino, num, blocknr, blocknr + num - 1);
@@ -931,88 +932,6 @@ static int nova_get_candidate_free_list(struct super_block *sb)
 	return cpuid;
 }
 
-static int nova_new_blocks_timing(struct super_block *sb, unsigned long *blocknr,
-	unsigned int num, unsigned short btype, int zero,
-	enum alloc_type atype, int cpuid, enum nova_alloc_direction from_tail)
-{
-	struct free_list *free_list;
-	void *bp;
-	unsigned long num_blocks = 0;
-	unsigned long new_blocknr = 0;
-	long ret_blocks = 0;
-	int retried = 0;
-	timing_t alloc_time, zero_time;
-
-	num_blocks = num * nova_get_numblocks(btype);
-	if (num_blocks == 0) {
-		nova_dbg_verbose("%s: num_blocks == 0", __func__);
-		return -EINVAL;
-	}
-
-	NOVA_START_TIMING(new_blocks_t, alloc_time);
-	if (cpuid == ANY_CPU)
-		cpuid = nova_get_cpuid(sb);
-
-retry:
-	free_list = nova_get_free_list(sb, cpuid);
-	spin_lock(&free_list->s_lock);
-
-	if (not_enough_blocks(free_list, num_blocks, atype)) {
-		nova_dbgv("%s: cpu %d, free_blocks %lu, required %lu, "
-			  "blocknode %lu\n",
-			  __func__, cpuid, free_list->num_free_blocks,
-			  num_blocks, free_list->num_blocknode);
-
-		if (retried >= 2)
-			/* Allocate anyway */
-			goto alloc;
-
-		spin_unlock(&free_list->s_lock);
-		cpuid = nova_get_candidate_free_list(sb);
-		retried++;
-		goto retry;
-	}
-alloc:
-	ret_blocks = nova_alloc_blocks_in_free_list(sb, free_list, btype, atype,
-					num_blocks, &new_blocknr, from_tail);
-
-	if (ret_blocks > 0) {
-		if (atype == LOG) {
-			free_list->alloc_log_count++;
-			free_list->alloc_log_pages += ret_blocks;
-		} else if (atype == DATA) {
-			free_list->alloc_data_count++;
-			free_list->alloc_data_pages += ret_blocks;
-		}
-	}
-
-	spin_unlock(&free_list->s_lock);
-	NOVA_END_TIMING(new_blocks_t, alloc_time);
-
-	if (ret_blocks <= 0 || new_blocknr == 0) {
-		nova_dbgv("%s: not able to allocate %d blocks. "
-			  "ret_blocks=%ld; new_blocknr=%lu",
-			  __func__, num, ret_blocks, new_blocknr);
-		return -ENOSPC;
-	}
-
-	NOVA_START_TIMING(zero_t, zero_time);
-	
-	if (zero) {
-		bp = nova_get_block(sb, nova_get_block_off(sb,
-						new_blocknr, btype));
-		nova_memunlock_range(sb, bp, PAGE_SIZE * ret_blocks);
-		memset_nt(bp, 0, PAGE_SIZE * ret_blocks);
-		nova_memlock_range(sb, bp, PAGE_SIZE * ret_blocks);
-	}
-	
-	NOVA_END_TIMING(zero_t, zero_time);
-	*blocknr = new_blocknr;
-
-	nova_dbg_verbose("Alloc %lu NVMM blocks 0x%lx\n", ret_blocks, *blocknr);
-	return ret_blocks / nova_get_numblocks(btype);
-}
-
 static int nova_new_blocks(struct super_block *sb, unsigned long *blocknr,
 	unsigned int num, unsigned short btype, int zero,
 	enum alloc_type atype, int cpuid, enum nova_alloc_direction from_tail)
@@ -1023,7 +942,7 @@ static int nova_new_blocks(struct super_block *sb, unsigned long *blocknr,
 	unsigned long new_blocknr = 0;
 	long ret_blocks = 0;
 	int retried = 0;
-	timing_t alloc_time;
+	INIT_TIMING(alloc_time);
 
 	num_blocks = num * nova_get_numblocks(btype);
 	if (num_blocks == 0) {
@@ -1100,7 +1019,7 @@ int nova_new_data_blocks(struct super_block *sb,
 	enum nova_alloc_direction from_tail)
 {
 	int allocated;
-	timing_t alloc_time;
+	INIT_TIMING(alloc_time);
 
 	NOVA_START_TIMING(new_data_blocks_t, alloc_time);
 	allocated = nova_new_blocks(sb, blocknr, num,
@@ -1112,36 +1031,7 @@ int nova_new_data_blocks(struct super_block *sb,
 			  sih->ino, start_blk, allocated, *blocknr,
 			  *blocknr + allocated - 1);
 	} else {
-		nova_dbgv(KERN_INFO "Inode %lu, start blk %lu, "
-			  "alloc %d data blocks from %lu to %lu\n",
-			  sih->ino, start_blk, allocated, *blocknr,
-			  *blocknr + allocated - 1);
-	}
-	return allocated;
-}
-
-// Allocate data blocks.  The offset for the allocated block comes back in
-// blocknr.  Return the number of blocks allocated.
-int nova_new_data_blocks_timing(struct super_block *sb,
-	struct nova_inode_info_header *sih, unsigned long *blocknr,
-	unsigned long start_blk, unsigned int num,
-	enum nova_alloc_init zero, int cpu,
-	enum nova_alloc_direction from_tail)
-{
-	int allocated;
-	timing_t alloc_time;
-
-	NOVA_START_TIMING(new_data_blocks_t, alloc_time);
-	allocated = nova_new_blocks_timing(sb, blocknr, num,
-			    sih->i_blk_type, zero, DATA, cpu, from_tail);
-	NOVA_END_TIMING(new_data_blocks_t, alloc_time);
-	if (allocated < 0) {
-		nova_dbgv(KERN_INFO "FAILED: Inode %lu, start blk %lu, "
-			  "alloc %d data blocks from %lu to %lu\n",
-			  sih->ino, start_blk, allocated, *blocknr,
-			  *blocknr + allocated - 1);
-	} else {
-		nova_dbgv(KERN_INFO "Inode %lu, start blk %lu, "
+		nova_dbgv("Inode %lu, start blk %lu, "
 			  "alloc %d data blocks from %lu to %lu\n",
 			  sih->ino, start_blk, allocated, *blocknr,
 			  *blocknr + allocated - 1);
@@ -1159,7 +1049,7 @@ int nova_new_log_blocks(struct super_block *sb,
 			enum nova_alloc_direction from_tail)
 {
 	int allocated;
-	timing_t alloc_time;
+	INIT_TIMING(alloc_time);
 
 	NOVA_START_TIMING(new_log_blocks_t, alloc_time);
 	allocated = nova_new_blocks(sb, blocknr, num,

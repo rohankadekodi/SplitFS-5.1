@@ -204,38 +204,16 @@ static int nova_seq_show_allocator(struct seq_file *seq, void *v)
 	struct free_list *free_list;
 	int i;
 	unsigned long log_pages = 0;
-	unsigned long data_pages = 0;	
-	struct nova_range_node *curr;
-	struct rb_node *temp;
-	size_t huge_free_regions = 0, small_free_regions = 0;
-	size_t region_size;
+	unsigned long data_pages = 0;
 
 	seq_puts(seq, "======== NOVA per-CPU allocator stats ========\n");
 	for (i = 0; i < sbi->cpus; i++) {
 		free_list = nova_get_free_list(sb, i);
-		huge_free_regions = 0;
-		small_free_regions = 0;
-		
-		temp = rb_first(&free_list->block_free_tree);
-		while (temp) {
-			curr = container_of(temp, struct nova_range_node, node);
-			region_size = curr->range_high - curr->range_low + 1;
-			if (region_size >= 512) {
-				huge_free_regions++;
-			} else {
-				small_free_regions++;
-			}
-			temp = rb_next(temp);
-		}
-		
 		seq_printf(seq, "Free list %d: block start %lu, block end %lu, num_blocks %lu, num_free_blocks %lu, blocknode %lu\n",
 			i, free_list->block_start, free_list->block_end,
 			free_list->block_end - free_list->block_start + 1,
 			free_list->num_free_blocks, free_list->num_blocknode);
 
-		seq_printf(seq, "Number of huge free regions = %lu. Number of small free regions = %lu\n",
-			   huge_free_regions, small_free_regions);
-		
 		if (free_list->first_node) {
 			seq_printf(seq, "First node %lu - %lu\n",
 					free_list->first_node->range_low,
@@ -343,13 +321,9 @@ ssize_t nova_seq_delete_snapshot(struct file *filp, const char __user *buf,
 	struct inode *inode = mapping->host;
 	struct super_block *sb = PDE_DATA(inode);
 	u64 epoch_id;
-	int ret;
 
-	ret = kstrtoull(buf, 10, &epoch_id);
-	if (ret < 0)
-		nova_warn("Couldn't parse snapshot id %s", buf);
-	else
-		nova_delete_snapshot(sb, epoch_id);
+	sscanf(buf, "%llu", &epoch_id);
+	nova_delete_snapshot(sb, epoch_id);
 
 	return len;
 }
@@ -453,7 +427,6 @@ ssize_t nova_seq_gc(struct file *filp, const char __user *buf,
 	struct nova_inode *target_pi;
 	struct nova_inode_info *target_sih;
 
-	int ret;
 	char *_buf;
 	int retval = len;
 
@@ -470,13 +443,18 @@ ssize_t nova_seq_gc(struct file *filp, const char __user *buf,
 	}
 
 	_buf[len] = 0;
-	ret = kstrtoull(_buf, 0, &target_inode_number);
-	if (ret) {
-		nova_info("%s: Could not parse ino '%s'\n", __func__, _buf);
-		return ret;
-	}
+	sscanf(_buf, "%llu", &target_inode_number);
 	nova_info("%s: target_inode_number=%llu.", __func__,
 		  target_inode_number);
+
+	/* FIXME: inode_number must exist */
+	if (target_inode_number < NOVA_NORMAL_INODE_START &&
+			target_inode_number != NOVA_ROOT_INO) {
+		nova_info("%s: invalid inode %llu.", __func__,
+			  target_inode_number);
+		retval = -ENOENT;
+		goto out;
+	}
 
 	target_inode = nova_iget(sb, target_inode_number);
 	if (target_inode == NULL) {

@@ -110,7 +110,7 @@ static bool curr_page_invalid(struct super_block *sb,
 	unsigned int num_entries;
 	unsigned int invalid_entries;
 	bool ret;
-	timing_t check_time;
+	INIT_TIMING(check_time);
 	int rc;
 
 	NOVA_START_TIMING(check_invalid_t, check_time);
@@ -313,7 +313,7 @@ static unsigned long nova_inode_log_thorough_gc(struct super_block *sb,
 	int allocated;
 	int extended = 0;
 	int ret;
-	timing_t gc_time;
+	INIT_TIMING(gc_time);
 
 	NOVA_START_TIMING(thorough_gc_t, gc_time);
 
@@ -363,7 +363,7 @@ static unsigned long nova_inode_log_thorough_gc(struct super_block *sb,
 				blocks++;
 			/* Copy entry to the new log */
 			nova_memunlock_block(sb, nova_get_block(sb, new_curr));
-			memcpy_to_pmem_nocache(sb, nova_get_block(sb, new_curr),
+			memcpy_to_pmem_nocache(nova_get_block(sb, new_curr),
 				nova_get_block(sb, curr_p), length);
 			nova_inc_page_num_entries(sb, new_curr);
 			nova_memlock_block(sb, nova_get_block(sb, new_curr));
@@ -394,7 +394,7 @@ static unsigned long nova_inode_log_thorough_gc(struct super_block *sb,
 	if (metadata_csum && sih->alter_pi_addr) {
 		alter_pi = (struct nova_inode *)nova_get_block(sb,
 						sih->alter_pi_addr);
-		memcpy_to_pmem_nocache(sb, alter_pi, pi, sizeof(struct nova_inode));
+		memcpy_to_pmem_nocache(alter_pi, pi, sizeof(struct nova_inode));
 	}
 	nova_memlock_inode(sb, pi);
 	nova_flush_buffer(pi, sizeof(struct nova_inode), 1);
@@ -441,7 +441,7 @@ static unsigned long nova_inode_alter_log_thorough_gc(struct super_block *sb,
 	u64 new_head = 0;
 	u64 alter_next;
 	int allocated;
-	timing_t gc_time;
+	INIT_TIMING(gc_time);
 
 	NOVA_START_TIMING(thorough_gc_t, gc_time);
 
@@ -469,7 +469,7 @@ static unsigned long nova_inode_alter_log_thorough_gc(struct super_block *sb,
 	new_curr = new_head;
 	while (1) {
 		nova_memunlock_block(sb, nova_get_block(sb, new_curr));
-		memcpy_to_pmem_nocache(sb, nova_get_block(sb, new_curr),
+		memcpy_to_pmem_nocache(nova_get_block(sb, new_curr),
 				nova_get_block(sb, curr_p), LOG_BLOCK_TAIL);
 
 		nova_set_alter_page_address(sb, curr_p, new_curr);
@@ -524,7 +524,7 @@ static unsigned long nova_inode_alter_log_thorough_gc(struct super_block *sb,
 	if (metadata_csum && sih->alter_pi_addr) {
 		alter_pi = (struct nova_inode *)nova_get_block(sb,
 						sih->alter_pi_addr);
-		memcpy_to_pmem_nocache(sb, alter_pi, pi, sizeof(struct nova_inode));
+		memcpy_to_pmem_nocache(alter_pi, pi, sizeof(struct nova_inode));
 	}
 	nova_memlock_inode(sb, pi);
 	nova_flush_buffer(pi, sizeof(struct nova_inode), 1);
@@ -577,7 +577,7 @@ int nova_inode_log_fast_gc(struct super_block *sb,
 	unsigned long blocks;
 	unsigned long checked_pages = 0;
 	int freed_pages = 0;
-	timing_t gc_time;
+	INIT_TIMING(gc_time);
 
 	NOVA_START_TIMING(fast_gc_t, gc_time);
 	curr = sih->log_head;
@@ -689,7 +689,7 @@ int nova_inode_log_fast_gc(struct super_block *sb,
 	if (metadata_csum && sih->alter_pi_addr) {
 		alter_pi = (struct nova_inode *)nova_get_block(sb,
 						sih->alter_pi_addr);
-		memcpy_to_pmem_nocache(sb, alter_pi, pi, sizeof(struct nova_inode));
+		memcpy_to_pmem_nocache(alter_pi, pi, sizeof(struct nova_inode));
 	}
 	nova_memlock_inode(sb, pi);
 	sih->log_head = possible_head;

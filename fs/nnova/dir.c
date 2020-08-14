@@ -140,7 +140,7 @@ int nova_remove_dir_tree(struct super_block *sb,
 void nova_delete_dir_tree(struct super_block *sb,
 	struct nova_inode_info_header *sih)
 {
-	timing_t delete_time;
+	INIT_TIMING(delete_time);
 
 	NOVA_START_TIMING(delete_dir_tree_t, delete_time);
 
@@ -160,6 +160,7 @@ static unsigned int nova_init_dentry(struct super_block *sb,
 	unsigned int length;
 	unsigned short de_len;
 	struct timespec64 now;
+
 
 	de_len = NOVA_DIR_LOG_REC_LEN(1);
 	memset(de_entry, 0, de_len);
@@ -274,7 +275,7 @@ int nova_append_dir_init_entries(struct super_block *sb,
 		return -EINVAL;
 
 	nova_memunlock_inode(sb, alter_pi);
-	memcpy_to_pmem_nocache(sb, alter_pi, pi, sizeof(struct nova_inode));
+	memcpy_to_pmem_nocache(alter_pi, pi, sizeof(struct nova_inode));
 	nova_memlock_inode(sb, alter_pi);
 
 	return 0;
@@ -297,7 +298,7 @@ int nova_add_dentry(struct dentry *dentry, u64 ino, int inc_link,
 	unsigned short loglen;
 	int ret;
 	u64 curr_entry;
-	timing_t add_dentry_time;
+	INIT_TIMING(add_dentry_time);
 
 	nova_dbg_verbose("%s: dir %lu new inode %llu\n",
 				__func__, dir->i_ino, ino);
@@ -389,7 +390,7 @@ int nova_remove_dentry(struct dentry *dentry, int dec_link,
 	unsigned short loglen;
 	int ret;
 	u64 curr_entry;
-	timing_t remove_dentry_time;
+	INIT_TIMING(remove_dentry_time);
 
 	NOVA_START_TIMING(remove_dentry_t, remove_dentry_time);
 
@@ -425,12 +426,10 @@ int nova_remove_dentry(struct dentry *dentry, int dec_link,
 			update->alter_tail = sih->alter_log_tail;
 		}
 		sih->trans_id++;
-		
 		goto out;
 	}
 
 	loglen = NOVA_DIR_LOG_REC_LEN(entry->len);
-	
 	ret = nova_append_dentry(sb, pidir, dir, dentry,
 				0, loglen, update,
 				dec_link, epoch_id);
@@ -566,7 +565,7 @@ static int nova_readdir_slow_rbtree(struct file *file,
 static int nova_readdir_slow(struct file *file, struct dir_context *ctx)
 {
 	int ret;
-	timing_t readdir_time;
+	INIT_TIMING(readdir_time);
 
 	NOVA_START_TIMING(readdir_t, readdir_time);
 
@@ -616,7 +615,7 @@ static int nova_readdir_fast(struct file *file, struct dir_context *ctx)
 	u64 curr_p;
 	u8 type;
 	int ret;
-	timing_t readdir_time;
+	INIT_TIMING(readdir_time);
 
 	NOVA_START_TIMING(readdir_t, readdir_time);
 	pidir = nova_get_inode(sb, inode);

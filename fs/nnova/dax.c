@@ -40,7 +40,7 @@ static inline int nova_copy_partial_block(struct super_block *sb,
 			rc = memcpy_mcsafe(kmem + offset, ptr + offset,
 						length);
 		else
-			memcpy_to_pmem_nocache(sb, kmem + offset, ptr + offset,
+			memcpy_to_pmem_nocache(kmem + offset, ptr + offset,
 						length);
 	}
 
@@ -62,7 +62,7 @@ static inline int nova_handle_partial_block(struct super_block *sb,
 		if (support_clwb)
 			memset(kmem + offset, 0, length);
 		else
-			memcpy_to_pmem_nocache(sb, kmem + offset,
+			memcpy_to_pmem_nocache(kmem + offset,
 					sbi->zeroed_page, length);
 	} else {
 		/* Copy from original block */
@@ -97,7 +97,7 @@ int nova_handle_head_tail_blocks(struct super_block *sb,
 	size_t offset, eblk_offset;
 	unsigned long start_blk, end_blk, num_blocks;
 	struct nova_file_write_entry *entry;
-	timing_t partial_time;
+	INIT_TIMING(partial_time);
 	int ret = 0;
 
 	NOVA_START_TIMING(partial_block_t, partial_time);
@@ -278,7 +278,8 @@ int nova_protect_file_data(struct super_block *sb, struct inode *inode,
 	struct nova_file_write_entry *entryc, entry_copy;
 	bool mapped, nvmm_ok;
 	int ret = 0;
-	timing_t protect_file_data_time, memcpy_time;
+	INIT_TIMING(protect_file_data_time);
+	INIT_TIMING(memcpy_time);
 
 	NOVA_START_TIMING(protect_file_data_t, protect_file_data_time);
 
@@ -475,17 +476,13 @@ unsigned long nova_check_existing_entry(struct super_block *sb,
 	struct nova_file_write_entry *entryc;
 	unsigned long next_pgoff;
 	unsigned long ent_blks = 0;
-	timing_t check_time;
+	INIT_TIMING(check_time);
 
 	NOVA_START_TIMING(check_entry_t, check_time);
 
 	*ret_entry = NULL;
 	*inplace = 0;
 	entry = nova_get_write_entry(sb, sih, start_blk);
-
-    if (num_blocks > 512) {
-        num_blocks = 512;
-    }
 
 	entryc = (metadata_csum == 0) ? entry : ret_entryc;
 
@@ -582,13 +579,15 @@ ssize_t do_nova_inplace_file_write(struct file *filp,
 	u64 blk_off;
 	size_t bytes;
 	long status = 0;
-	timing_t inplace_write_time, memcpy_time;
+	INIT_TIMING(inplace_write_time);
+	INIT_TIMING(memcpy_time);
 	unsigned long step = 0;
 	u64 begin_tail = 0;
 	u64 epoch_id;
 	u64 file_size;
 	u32 time;
 	ssize_t ret;
+
 
 	if (len == 0)
 		return 0;
@@ -698,7 +697,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp,
 //		nova_dbg("Write: %p\n", kmem);
 		NOVA_START_TIMING(memcpy_w_nvmm_t, memcpy_time);
 		nova_memunlock_range(sb, kmem + offset, bytes);
-		copied = bytes - memcpy_to_pmem_nocache(sb, kmem + offset,
+		copied = bytes - memcpy_to_pmem_nocache(kmem + offset,
 						buf, bytes);
 		nova_memlock_range(sb, kmem + offset, bytes);
 		NOVA_END_TIMING(memcpy_w_nvmm_t, memcpy_time);
@@ -893,7 +892,7 @@ static int nova_dax_get_blocks(struct inode *inode, sector_t iblock,
 	int locked = 0;
 	int check_next = 1;
 	int ret = 0;
-	timing_t get_block_time;
+	INIT_TIMING(get_block_time);
 
 	if (max_blocks == 0)
 		return 0;
@@ -918,7 +917,6 @@ again:
 	if (entry) {
 		if (create == 0 || inplace) {
 			nvmm = get_nvmm(sb, sih, entryc, iblock);
-			
 			nova_dbgv("%s: found pgoff %lu, block %lu\n",
 					__func__, iblock, nvmm);
 			goto out;
@@ -945,15 +943,9 @@ again:
 	update.alter_tail = sih->alter_log_tail;
 
 	/* Return initialized blocks to the user */
-	if (taking_lock) {
-		allocated = nova_new_data_blocks_timing(sb, sih, &blocknr, iblock,
-							num_blocks, ALLOC_INIT_ZERO, ANY_CPU,
-							ALLOC_FROM_HEAD);
-	} else {
-		allocated = nova_new_data_blocks(sb, sih, &blocknr, iblock,
-							num_blocks, ALLOC_INIT_ZERO, ANY_CPU,
-							ALLOC_FROM_HEAD);
-	}
+	allocated = nova_new_data_blocks(sb, sih, &blocknr, iblock,
+				 num_blocks, ALLOC_INIT_ZERO, ANY_CPU,
+				 ALLOC_FROM_HEAD);
 	if (allocated <= 0) {
 		nova_dbgv("%s alloc blocks failed %d\n", __func__,
 							allocated);
@@ -1040,11 +1032,11 @@ int nova_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 
 	if (ret == 0) {
 		iomap->type = IOMAP_HOLE;
-		iomap->offset = IOMAP_NULL_ADDR;
+		iomap->addr = IOMAP_NULL_ADDR;
 		iomap->length = 1 << blkbits;
 	} else {
 		iomap->type = IOMAP_MAPPED;
-		iomap->offset = (sector_t)bno << (blkbits - 9);
+		iomap->addr = (u64)bno << blkbits;
 		iomap->length = (u64)ret << blkbits;
 		iomap->flags |= IOMAP_F_MERGED;
 
@@ -1056,10 +1048,7 @@ int nova_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 			byte_offset_in_dax = byte_offset_in_dax - diff_between_devs;
 			iomap->offset = (sector_t)byte_offset_in_dax >> 9;
 		}
-		
 	}
-
-	//printk(KERN_INFO "%s: iomap->offset = %lu, pos = %lu, pos & PAGE_MASK - iomap_offset = %lu, bno addr = 0x%lx, bno = %lu, bno << PAGE_SHIFT = %lu, sbi->initsize = %lu, sector = %lu\n", __func__, iomap->offset, offset, (offset & PAGE_MASK) - iomap->offset, nova_get_block(inode->i_sb, bno << PAGE_SHIFT), bno, bno << PAGE_SHIFT, sbi->initsize, iomap->blkno);
 
 	if (new)
 		iomap->flags |= IOMAP_F_NEW;
@@ -1095,11 +1084,11 @@ static vm_fault_t nova_dax_huge_fault(struct vm_fault *vmf,
 	vm_fault_t ret;
 	int error = 0;
 	pfn_t pfn;
-	// INIT_TIMING(fault_time);
+	INIT_TIMING(fault_time);
 	struct address_space *mapping = vmf->vma->vm_file->f_mapping;
 	struct inode *inode = mapping->host;
 
-	// NOVA_START_TIMING(pmd_fault_t, fault_time);
+	NOVA_START_TIMING(pmd_fault_t, fault_time);
 
 	nova_dbgv("%s: inode %lu, pgoff %lu\n",
 		  __func__, inode->i_ino, vmf->pgoff);
@@ -1109,7 +1098,7 @@ static vm_fault_t nova_dax_huge_fault(struct vm_fault *vmf,
 
 	ret = dax_iomap_fault(vmf, pe_size, &pfn, &error, &nova_iomap_ops_lock);
 
-	// NOVA_END_TIMING(pmd_fault_t, fault_time);
+	NOVA_END_TIMING(pmd_fault_t, fault_time);
 	return ret;
 }
 
@@ -1126,7 +1115,6 @@ static vm_fault_t nova_dax_fault(struct vm_fault *vmf)
 
 static vm_fault_t nova_dax_pfn_mkwrite(struct vm_fault *vmf)
 {
-
 	struct address_space *mapping = vmf->vma->vm_file->f_mapping;
 	struct inode *inode = mapping->host;
 
@@ -1205,7 +1193,7 @@ int nova_insert_write_vma(struct vm_area_struct *vma)
 	int compVal;
 	int insert = 0;
 	int ret;
-	timing_t insert_vma_time;
+	INIT_TIMING(insert_vma_time);
 
 
 	if ((vma->vm_flags & flags) != flags)
@@ -1286,7 +1274,7 @@ static int nova_remove_write_vma(struct vm_area_struct *vma)
 	int compVal;
 	int found = 0;
 	int remove = 0;
-	timing_t remove_vma_time;
+	INIT_TIMING(remove_vma_time);
 
 
 	NOVA_START_TIMING(remove_vma_t, remove_vma_time);
@@ -1334,6 +1322,7 @@ static int nova_remove_write_vma(struct vm_area_struct *vma)
 	return 0;
 }
 
+#if 0
 static int nova_restore_page_write(struct vm_area_struct *vma,
 	unsigned long address)
 {
@@ -1352,6 +1341,7 @@ static int nova_restore_page_write(struct vm_area_struct *vma,
 
 	return 0;
 }
+#endif
 
 static void nova_vma_open(struct vm_area_struct *vma)
 {
@@ -1375,7 +1365,7 @@ static void nova_vma_close(struct vm_area_struct *vma)
 		  __func__, __LINE__, vma->vm_start, vma->vm_end,
 		  vma->vm_flags, pgprot_val(vma->vm_page_prot));
 
-	vma->original_write = 0;
+//	vma->original_write = 0;
 	nova_remove_write_vma(vma);
 }
 
@@ -1386,6 +1376,6 @@ const struct vm_operations_struct nova_dax_vm_ops = {
 	.pfn_mkwrite = nova_dax_pfn_mkwrite,
 	.open = nova_vma_open,
 	.close = nova_vma_close,
-	.dax_cow = nova_restore_page_write,
+//	.dax_cow = nova_restore_page_write,
 };
 

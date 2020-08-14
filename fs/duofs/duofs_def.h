@@ -52,9 +52,8 @@
 
 #define DUOFS_INODE_SIZE 128    /* must be power of two */
 #define DUOFS_INODE_BITS   7
-#define INODE_TABLE0_START 2
+#define INODE_TABLE0_START 4
 #define INODE_TABLE_NUM_BLOCKS 5 /* Can host inode tables for up to 64 x 5 cpus */
-#define HEAD_RESERVED_BLOCKS 64
 
 #define DUOFS_NAME_LEN 255
 /*
@@ -94,7 +93,7 @@ struct duofs_direntry {
  */
 
 /* #define duofs_SB_SIZE 128 */ /* must be power of two */
-#define DUOFS_SB_SIZE 4096       /* must be power of two */
+#define DUOFS_SB_SIZE 8192       /* must be power of two */
 
 typedef struct duofs_journal {
 	__le64     base;

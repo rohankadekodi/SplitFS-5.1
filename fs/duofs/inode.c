@@ -1279,7 +1279,7 @@ static int pmfs_free_inode(struct inode *inode)
 
 	pi = pmfs_get_inode(sb, inode->i_ino);
 
-	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES);
+	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES, pmfs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		err = PTR_ERR(trans);
 		goto out;
@@ -1540,7 +1540,7 @@ static int pmfs_increase_inode_table_size(struct super_block *sb)
 
 #if 0
 	/* 1 log entry for inode-table inode, 1 lentry for inode-table b-tree */
-	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES);
+	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES, pmfs_get_cpuid(sb));
 	if (IS_ERR(trans))
 		return PTR_ERR(trans);
 
@@ -2019,7 +2019,7 @@ int pmfs_notify_change(struct dentry *dentry, struct iattr *attr)
 
 	BUG_ON(pmfs_current_transaction());
 	/* multiple fields are modified. Use a transaction for atomicity */
-	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES);
+	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES, pmfs_get_cpuid(sb));
 	if (IS_ERR(trans))
 		return PTR_ERR(trans);
 	pmfs_add_logentry(sb, trans, pi, sizeof(*pi), LE_DATA);

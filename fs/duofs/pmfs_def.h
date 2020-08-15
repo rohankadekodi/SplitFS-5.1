@@ -52,7 +52,7 @@
 
 #define PMFS_INODE_SIZE 128    /* must be power of two */
 #define PMFS_INODE_BITS   7
-#define INODE_TABLE0_START 1
+#define INODE_TABLE0_START 4
 #define INODE_TABLE_NUM_BLOCKS 5 /* Can host inode tables for up to 64 x 5 cpus */
 #define HEAD_RESERVED_BLOCKS 64
 
@@ -94,7 +94,7 @@ struct pmfs_direntry {
  */
 
 /* #define PMFS_SB_SIZE 128 */ /* must be power of two */
-#define PMFS_SB_SIZE 512       /* must be power of two */
+#define PMFS_SB_SIZE 8192       /* must be power of two */
 
 typedef struct pmfs_journal {
 	__le64     base;

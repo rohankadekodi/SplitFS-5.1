@@ -153,7 +153,7 @@ static int pmfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 	 * inode's b-tree, 2 lentries for logging dir entry
 	 */
 	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES * 2 +
-		MAX_DIRENTRY_LENTRIES);
+				     MAX_DIRENTRY_LENTRIES, pmfs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		err = PTR_ERR(trans);
 		goto out;
@@ -193,7 +193,7 @@ static int pmfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode,
 	 * inode's b-tree, 2 lentries for logging dir entry
 	 */
 	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES * 2 +
-			MAX_DIRENTRY_LENTRIES);
+			MAX_DIRENTRY_LENTRIES, pmfs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		err = PTR_ERR(trans);
 		goto out;
@@ -236,7 +236,7 @@ static int pmfs_symlink(struct inode *dir, struct dentry *dentry,
 	 * inode's b-tree, 2 lentries for logging dir entry
 	 */
 	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES * 2 +
-			MAX_DIRENTRY_LENTRIES);
+			MAX_DIRENTRY_LENTRIES, pmfs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		err = PTR_ERR(trans);
 		goto out;
@@ -291,7 +291,7 @@ static int pmfs_link(struct dentry *dest_dentry, struct inode *dir,
 		return -EMLINK;
 
 	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES * 2 +
-			MAX_DIRENTRY_LENTRIES);
+			MAX_DIRENTRY_LENTRIES, pmfs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		err = PTR_ERR(trans);
 		goto out;
@@ -334,7 +334,7 @@ static int pmfs_unlink(struct inode *dir, struct dentry *dentry)
 	PMFS_START_TIMING(unlink_t, unlink_time);
 
 	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES * 2 +
-		MAX_DIRENTRY_LENTRIES);
+		MAX_DIRENTRY_LENTRIES, pmfs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		retval = PTR_ERR(trans);
 		goto out;
@@ -384,7 +384,7 @@ static int pmfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 		goto out;
 
 	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES * 2 +
-			MAX_DIRENTRY_LENTRIES);
+			MAX_DIRENTRY_LENTRIES, pmfs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		err = PTR_ERR(trans);
 		goto out;
@@ -514,7 +514,7 @@ static int pmfs_rmdir(struct inode *dir, struct dentry *dentry)
 		pmfs_dbg("empty directory has nlink!=2 (%d)", inode->i_nlink);
 
 	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES * 2 +
-			MAX_DIRENTRY_LENTRIES);
+			MAX_DIRENTRY_LENTRIES, pmfs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		err = PTR_ERR(trans);
 		return err;
@@ -569,7 +569,7 @@ static int pmfs_rename(struct inode *old_dir,
 	pmfs_dbg_verbose("%s: rename %s to %s\n", __func__,
 			old_dentry->d_name.name, new_dentry->d_name.name);
 	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES * 4 +
-			MAX_DIRENTRY_LENTRIES * 2);
+			MAX_DIRENTRY_LENTRIES * 2, pmfs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		return PTR_ERR(trans);
 	}

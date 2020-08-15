@@ -503,7 +503,7 @@ ssize_t pmfs_xip_cow_file_write(struct file *filp, const char __user *buf,
 	if (max_logentries > MAX_METABLOCK_LENTRIES)
 		max_logentries = MAX_METABLOCK_LENTRIES;
 
-	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES + max_logentries);
+	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES + max_logentries, pmfs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		ret = PTR_ERR(trans);
 		goto out;
@@ -575,7 +575,7 @@ ssize_t pmfs_xip_cow_file_write(struct file *filp, const char __user *buf,
 	pmfs_commit_transaction(sb, trans);
 
 	if (num_inplace_blks > 0) {
-		trans = pmfs_new_transaction(sb, max_logentries);
+		trans = pmfs_new_transaction(sb, max_logentries, pmfs_get_cpuid(sb));
 		if (IS_ERR(trans)) {
 			ret = PTR_ERR(trans);
 			goto out;
@@ -720,7 +720,7 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	if (max_logentries > MAX_METABLOCK_LENTRIES)
 		max_logentries = MAX_METABLOCK_LENTRIES;
 
-	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES + max_logentries);
+	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES + max_logentries, pmfs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		ret = PTR_ERR(trans);
 		goto out;
@@ -845,7 +845,7 @@ static int pmfs_find_and_alloc_blocks(struct inode *inode,
 			}
 		} else {
 			/* 1 lentry for inode, 1 lentry for inode's b-tree */
-			trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES);
+			trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES, pmfs_get_cpuid(sb));
 			if (IS_ERR(trans)) {
 				err = PTR_ERR(trans);
 				goto err;

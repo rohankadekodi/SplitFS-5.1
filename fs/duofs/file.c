@@ -115,7 +115,7 @@ static long pmfs_fallocate(struct file *file, int mode, loff_t offset,
 	}
 
 	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES +
-			MAX_METABLOCK_LENTRIES);
+				     MAX_METABLOCK_LENTRIES, pmfs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		ret = PTR_ERR(trans);
 		goto out;

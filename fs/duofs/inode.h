@@ -168,8 +168,10 @@ static inline struct inode_table *pmfs_get_inode_table_log(struct super_block *s
 
 	table_start = INODE_TABLE0_START;
 
-	return (struct inode_table *)((char *)pmfs_get_block(sb,
-							     PMFS_DEF_BLOCK_SIZE_4K * table_start) +
+	return (struct inode_table *)((char *)
+				      pmfs_get_block(sb,
+						     PMFS_DEF_BLOCK_SIZE_4K *
+						     table_start) +
 				      cpu * CACHELINE_SIZE);
 }
 

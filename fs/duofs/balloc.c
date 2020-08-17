@@ -1015,6 +1015,8 @@ static int pmfs_get_candidate_free_list(struct super_block *sb)
 			numa_node = (numa_node + 1) % sbi->num_numa_nodes;
 			flag = 1;
 			goto again;
+		} else {
+			goto out;
 		}
 	} else {
 		for (i = 0; i < sbi->cpus; i++) {
@@ -1026,6 +1028,7 @@ static int pmfs_get_candidate_free_list(struct super_block *sb)
 		}
 	}
 
+ out:
 	return cpuid;
 }
 

@@ -830,6 +830,7 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 			goto out;
 		}
 		cpumask_clear(&sbi->numa_cpus[i].cpumask);
+		sbi->numa_cpus[i].num_cpus = 0;
 	}
 
 	if (sbi->num_numa_nodes == 1) {
@@ -842,13 +843,13 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 		if (sbi->cpus == 96) {
 			for (i = 0; i < sbi->cpus; i++) {
 				if (i < 24 || (i >= 48 && i < 72)) {
-					sbi->numa_cpus[0].cpus[i] = 1;
-					sbi->numa_cpus[1].cpus[i] = 0;
+					sbi->numa_cpus[0].cpus[i] = i;
+					sbi->numa_cpus[0].num_cpus++;
 					sbi->cpu_numa_node[i] = 0;
 					cpumask_set_cpu(i, &sbi->numa_cpus[0].cpumask);
 				} else {
-					sbi->numa_cpus[0].cpus[i] = 0;
-					sbi->numa_cpus[1].cpus[i] = 1;
+					sbi->numa_cpus[1].cpus[i] = i;
+					sbi->numa_cpus[1].num_cpus++;
 					sbi->cpu_numa_node[i] = 1;
 					cpumask_set_cpu(i, &sbi->numa_cpus[1].cpumask);
 				}
@@ -856,13 +857,13 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 		} else if (sbi->cpus == 32) {
 			for (i = 0; i < sbi->cpus; i++) {
 				if (i < 8 || (i >= 16 && i < 24)) {
-					sbi->numa_cpus[0].cpus[i] = 1;
-					sbi->numa_cpus[1].cpus[i] = 0;
+					sbi->numa_cpus[0].cpus[i] = i;
+					sbi->numa_cpus[0].num_cpus++;
 					sbi->cpu_numa_node[i] = 0;
 					cpumask_set_cpu(i, &sbi->numa_cpus[0].cpumask);
 				} else {
-					sbi->numa_cpus[0].cpus[i] = 0;
-					sbi->numa_cpus[1].cpus[i] = 1;
+					sbi->numa_cpus[1].cpus[i] = i;
+					sbi->numa_cpus[1].num_cpus++;
 					sbi->cpu_numa_node[i] = 1;
 					cpumask_set_cpu(i, &sbi->numa_cpus[1].cpumask);
 				}
@@ -879,15 +880,18 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 	}
 
 	sbi->num_parallel_procs = 20;
-	sbi->process_numa = kcalloc(sbi->num_parallel_procs, sizeof(struct process_numa),
+	sbi->process_numa = kcalloc(sbi->num_parallel_procs,
+				    sizeof(struct process_numa),
 				    GFP_KERNEL);
 
 	for (i = 0; i < sbi->num_parallel_procs; i++)
 		sbi->process_numa[i].numa_node = -1;
 
-	sbi->block_start = kcalloc(sbi->num_numa_nodes, sizeof(unsigned long),
+	sbi->block_start = kcalloc(sbi->num_numa_nodes,
+				   sizeof(unsigned long),
 				   GFP_KERNEL);
-	sbi->block_end = kcalloc(sbi->num_numa_nodes, sizeof(unsigned long),
+	sbi->block_end = kcalloc(sbi->num_numa_nodes,
+				 sizeof(unsigned long),
 				 GFP_KERNEL);
 
 	set_opt(sbi->s_mount_opt, MOUNTING);

@@ -995,12 +995,34 @@ static int pmfs_get_candidate_free_list(struct super_block *sb)
 	int cpuid = 0;
 	int num_free_blocks = 0;
 	int i;
+	int numa_node;
+	int flag = 0;
+	struct numa_node_cpus *numa_cpus;
 
-	for (i = 0; i < sbi->cpus; i++) {
-		free_list = pmfs_get_free_list(sb, i);
-		if (free_list->num_free_blocks > num_free_blocks) {
-			cpuid = i;
-			num_free_blocks = free_list->num_free_blocks;
+	if (sbi->num_numa_nodes == 2) {
+		numa_node = pmfs_get_numa_node(sb, pmfs_get_cpuid(sb));
+		numa_cpus = sbi->numa_cpus;
+	again:
+		for (i = 0; i < numa_cpus[numa_node].num_cpus; i++) {
+			free_list = pmfs_get_free_list(sb, numa_cpus[numa_node].cpus[i]);
+			if (free_list->num_free_blocks > num_free_blocks) {
+				cpuid = numa_cpus[numa_node].cpus[i];
+				num_free_blocks = free_list->num_free_blocks;
+			}
+		}
+
+		if (num_free_blocks == 0 && flag == 0) {
+			numa_node = (numa_node + 1) % sbi->num_numa_nodes;
+			flag = 1;
+			goto again;
+		}
+	} else {
+		for (i = 0; i < sbi->cpus; i++) {
+			free_list = pmfs_get_free_list(sb, i);
+			if (free_list->num_free_blocks > num_free_blocks) {
+				cpuid = i;
+				num_free_blocks = free_list->num_free_blocks;
+			}
 		}
 	}
 

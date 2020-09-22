@@ -720,17 +720,6 @@ static int recursive_alloc_blocks(pmfs_transaction_t *trans,
 		if (height == 1) {
 			if (node[i] == 0 || (free_blk_list != NULL)) {
 
-				/*
-				if (free_blk_list == NULL) {
-					for (j = i; j <= last_index; j++) {
-						if (node[j] != 0)
-							break;
-					}
-					num_blocks = j - i;
-				} else
-					num_blocks = last_index - i + 1;
-				*/
-
 				num_blocks = last_index - i + 1;
 
 				/* Break large allocations into 2MB chunks */

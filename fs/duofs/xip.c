@@ -654,6 +654,8 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	bool over_sblk = false, over_eblk = false;
 
+	strong_guarantees = true;
+
 	PMFS_START_TIMING(xip_write_t, xip_write_time);
 
 	sb_start_write(inode->i_sb);
@@ -701,7 +703,6 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	start_blk = pos >> sb->s_blocksize_bits;
 	end_blk = start_blk + num_blocks - 1;
 
-#if 0
 	if (!(strong_guarantees && pos < i_size_read(inode))) {
 		num_blocks_found = pmfs_find_data_blocks(inode, start_blk, &block, 1);
 
@@ -716,7 +717,6 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 			goto out;
 		}
 	}
-#endif
 
 	max_logentries = num_blocks / MAX_PTRS_PER_LENTRY + 2;
 	if (max_logentries > MAX_METABLOCK_LENTRIES)

@@ -723,10 +723,9 @@ static int recursive_alloc_blocks(pmfs_transaction_t *trans,
 						if (node[j] != 0)
 							break;
 					}
+					num_blocks = j - i;
 				} else
-					j = last_index;
-
-				num_blocks = j - i + 1;
+					num_blocks = last_index - i + 1;
 
 				/* Break large allocations into 2MB chunks */
 				if (num_blocks > 512) {

@@ -706,7 +706,7 @@ static int recursive_alloc_blocks(pmfs_transaction_t *trans,
 	int num_blocks = 0;
 	int allocated, freed;
 	__le64 node_val;
-	//bool strong_guarantees = PMFS_SB(sb)->s_mount_opt & PMFS_MOUNT_STRICT;
+	bool strong_guarantees = PMFS_SB(sb)->s_mount_opt & PMFS_MOUNT_STRICT;
 
 	node = pmfs_get_block(sb, le64_to_cpu(block));
 
@@ -720,7 +720,7 @@ static int recursive_alloc_blocks(pmfs_transaction_t *trans,
 		if (height == 1) {
 			if (node[i] == 0 || (free_blk_list != NULL)) {
 
-
+				/*
 				if (free_blk_list == NULL) {
 					for (j = i; j <= last_index; j++) {
 						if (node[j] != 0)
@@ -729,8 +729,9 @@ static int recursive_alloc_blocks(pmfs_transaction_t *trans,
 					num_blocks = j - i;
 				} else
 					num_blocks = last_index - i + 1;
+				*/
 
-				//num_blocks = last_index - i + 1;
+				num_blocks = last_index - i + 1;
 
 				/* Break large allocations into 2MB chunks */
 				if (num_blocks > 512) {
@@ -775,16 +776,16 @@ static int recursive_alloc_blocks(pmfs_transaction_t *trans,
 										  pi->i_blk_type));
 
 					if (free_blk_list != NULL && node[j] != 0) {
-						//if (strong_guarantees)
-						free_blk_list[*num_free_blks] = node[j];
-						//else
-						//	free_blk_list[*num_free_blks] = node_val;
+						if (strong_guarantees)
+							free_blk_list[*num_free_blks] = node[j];
+						else
+							free_blk_list[*num_free_blks] = node_val;
 
 						(*num_free_blks) += 1;
 					}
 
-					//if (node[j] == 0 || strong_guarantees)
-					node[j] = node_val;
+					if (node[j] == 0 || strong_guarantees)
+						node[j] = node_val;
 
 					blocknr++;
 				}

@@ -764,7 +764,6 @@ static int recursive_alloc_blocks(pmfs_transaction_t *trans,
 										  pi->i_blk_type));
 
 					if (free_blk_list != NULL && node[j] != 0) {
-
 						if (strong_guarantees)
 							free_blk_list[*num_free_blks] = node[j];
 						else
@@ -774,9 +773,7 @@ static int recursive_alloc_blocks(pmfs_transaction_t *trans,
 					}
 
 					if (node[j] == 0 || strong_guarantees)
-						node[j] = cpu_to_le64(pmfs_get_block_off(sb,
-											 blocknr,
-											 pi->i_blk_type));
+						node[j] = node_val;
 
 					blocknr++;
 				}

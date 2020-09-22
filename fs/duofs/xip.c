@@ -780,8 +780,6 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 		kfree(start_buf);
 	if (end_buf)
 		kfree(end_buf);
-	start_buf = NULL;
-	end_buf = NULL;
 
 	written = __pmfs_xip_file_write(mapping, buf, count, pos, ppos);
 	if (written < 0 || written != count)

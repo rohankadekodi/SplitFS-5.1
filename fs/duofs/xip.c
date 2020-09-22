@@ -701,6 +701,7 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	start_blk = pos >> sb->s_blocksize_bits;
 	end_blk = start_blk + num_blocks - 1;
 
+#if 0
 	if (!(strong_guarantees && pos < i_size_read(inode))) {
 		num_blocks_found = pmfs_find_data_blocks(inode, start_blk, &block, 1);
 
@@ -715,6 +716,7 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 			goto out;
 		}
 	}
+#endif
 
 	max_logentries = num_blocks / MAX_PTRS_PER_LENTRY + 2;
 	if (max_logentries > MAX_METABLOCK_LENTRIES)
@@ -915,7 +917,7 @@ int pmfs_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 				   &bno,
 				   flags & IOMAP_WRITE);
 
-	if (ret <= 0) {
+	if (ret < 0) {
 		pmfs_dbg("%s: pmfs_dax_get_blocks failed %d", __func__, ret);
 		pmfs_dbg("%s: returning %d\n", __func__, ret);
 		return ret;

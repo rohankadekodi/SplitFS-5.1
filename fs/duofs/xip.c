@@ -654,8 +654,6 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	bool over_sblk = false, over_eblk = false;
 
-	strong_guarantees = true;
-
 	PMFS_START_TIMING(xip_write_t, xip_write_time);
 
 	sb_start_write(inode->i_sb);

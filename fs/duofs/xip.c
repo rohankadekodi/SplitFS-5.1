@@ -757,10 +757,10 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	if (strong_guarantees && pos < i_size_read(inode)) {
 		pmfs_copy_from_edge_blk(sb, pi, over_sblk, start_blk, offset, false, &start_buf);
 		pmfs_copy_from_edge_blk(sb, pi, over_eblk, end_blk, eblk_offset, true, &end_buf);
-
-		free_blk_list = (__le64 *) kmalloc(num_blocks * sizeof(__le64), GFP_KERNEL);
-		num_free_blks = 0;
 	}
+
+	free_blk_list = (__le64 *) kmalloc(num_blocks * sizeof(__le64), GFP_KERNEL);
+	num_free_blks = 0;
 
 	/* don't zero-out the allocated blocks */
 	pmfs_alloc_blocks(trans, inode, start_blk, num_blocks, false,
@@ -774,14 +774,14 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	if (strong_guarantees && pos < i_size_read(inode)) {
 		pmfs_copy_to_edge_blk(sb, pi, over_sblk, start_blk, offset, false, start_buf);
 		pmfs_copy_to_edge_blk(sb, pi, over_eblk, end_blk, eblk_offset, true, end_buf);
-
-		if (start_buf)
-			kfree(start_buf);
-		if (end_buf)
-			kfree(end_buf);
-		start_buf = NULL;
-		end_buf = NULL;
 	}
+
+	if (start_buf)
+		kfree(start_buf);
+	if (end_buf)
+		kfree(end_buf);
+	start_buf = NULL;
+	end_buf = NULL;
 
 	written = __pmfs_xip_file_write(mapping, buf, count, pos, ppos);
 	if (written < 0 || written != count)

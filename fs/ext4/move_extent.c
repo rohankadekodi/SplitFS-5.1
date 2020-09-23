@@ -952,6 +952,7 @@ out:
 	ext4_journal_stop(handle);
 	unlock_two_nondirectories(rec_inode, donor_inode);
 
+	/*
 	commit_tid = ei->i_sync_tid;
 	if (journal->j_flags & JBD2_BARRIER &&
 	    !jbd2_trans_will_send_data_barrier(journal, commit_tid))
@@ -962,6 +963,7 @@ out:
 		if (err)
 			BUG();
 	}
+	*/
 
 	return size_remapped;
 }

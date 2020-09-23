@@ -3228,6 +3228,8 @@ extern void ext4_ext_init(struct super_block *);
 extern void ext4_ext_release(struct super_block *);
 extern long ext4_fallocate(struct file *file, int mode, loff_t offset,
 			  loff_t len);
+extern long ext4_fallocate_for_dr(handle_t *handle, struct file *file, int mode, loff_t offset,
+			   loff_t len);
 extern int ext4_convert_unwritten_extents(handle_t *handle, struct inode *inode,
 					  loff_t offset, ssize_t len);
 extern int ext4_map_blocks(handle_t *handle, struct inode *inode,
@@ -3258,6 +3260,9 @@ extern int ext4_swap_extents(handle_t *handle, struct inode *inode1,
 				struct inode *inode2, ext4_lblk_t lblk1,
 			     ext4_lblk_t lblk2,  ext4_lblk_t count,
 			     int mark_unwritten,int *err);
+extern int ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
+				  struct inode *donor_inode, ext4_lblk_t rec_lblk, ext4_lblk_t donor_lblk,
+				  ext4_lblk_t count, int unwritten, int *erp);
 extern int ext4_clu_mapped(struct inode *inode, ext4_lblk_t lclu);
 extern void ext4_ext_replay_shrink_inode(struct inode *inode, ext4_lblk_t end);
 extern int ext4_ext_replay_set_iblocks(struct inode *inode);
@@ -3273,6 +3278,10 @@ extern void ext4_double_up_write_data_sem(struct inode *orig_inode,
 extern int ext4_move_extents(struct file *o_filp, struct file *d_filp,
 			     __u64 start_orig, __u64 start_donor,
 			     __u64 len, __u64 *moved_len);
+extern long
+ext4_dynamic_remap(struct file *file1, struct file *file2,
+		   loff_t offset1, loff_t offset2,
+		   loff_t count);
 
 /* page-io.c */
 extern int __init ext4_init_pageio(void);

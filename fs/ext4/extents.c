@@ -4994,7 +4994,6 @@ long ext4_fallocate_for_dr(handle_t *handle, struct file *file, int mode, loff_t
 	ext4_lblk_t lblk;
 	unsigned int blkbits = inode->i_blkbits;
 
-	//printk(KERN_INFO "%s: Start \n", __func__);
 	/*
 	 * Encrypted inodes can't handle collapse range or insert
 	 * range since we would need to re-encrypt blocks with a
@@ -5005,7 +5004,7 @@ long ext4_fallocate_for_dr(handle_t *handle, struct file *file, int mode, loff_t
 	 * leave it disabled for encrypted inodes for now.  This is a
 	 * bug we should fix....
 	 */
-	if (ext4_encrypted_inode(inode) &&
+	if (IS_ENCRYPTED(inode) &&
 	    (mode & (FALLOC_FL_COLLAPSE_RANGE | FALLOC_FL_INSERT_RANGE |
 		     FALLOC_FL_ZERO_RANGE)))
 		return -EOPNOTSUPP;
@@ -5523,6 +5522,128 @@ ext4_ext_shift_extents(struct inode *inode, handle_t *handle,
 out:
 	ext4_ext_drop_refs(path);
 	kfree(path);
+	return ret;
+}
+
+/*
+ * ext4_collapse_range:
+ * This implements the fallocate's collapse range functionality for ext4
+ * Returns: 0 and non-zero on error.
+ */
+int ext4_meta_collapse_range(struct inode *inode, loff_t offset, loff_t len, handle_t *handle)
+{
+	struct super_block *sb = inode->i_sb;
+	ext4_lblk_t punch_start, punch_stop;
+	loff_t new_size, ioffset;
+	int ret;
+
+	/*
+	 * We need to test this early because xfstests assumes that a
+	 * collapse range of (0, 1) will return EOPNOTSUPP if the file
+	 * system does not support collapse range.
+	 */
+	if (!ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS)) {
+		return -EOPNOTSUPP;
+	}
+
+	/* Collapse range works only on fs block size aligned offsets. */
+	if (offset & (EXT4_CLUSTER_SIZE(sb) - 1) ||
+	    len & (EXT4_CLUSTER_SIZE(sb) - 1)) {
+		return -EINVAL;
+	}
+
+	if (!S_ISREG(inode->i_mode))
+		return -EINVAL;
+
+	trace_ext4_collapse_range(inode, offset, len);
+
+	punch_start = offset >> EXT4_BLOCK_SIZE_BITS(sb);
+	punch_stop = (offset + len) >> EXT4_BLOCK_SIZE_BITS(sb);
+
+	/*
+	 * There is no need to overlap collapse range with EOF, in which case
+	 * it is effectively a truncate operation
+	 */
+	if (offset + len >= i_size_read(inode)) {
+		ret = -EINVAL;
+		goto out_mutex;
+	}
+
+	/* Currently just for extent based files */
+	if (!ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS)) {
+		ret = -EOPNOTSUPP;
+		goto out_mutex;
+	}
+
+	inode_dio_wait(inode);
+
+	/*
+	 * Prevent page faults from reinstantiating pages we have released from
+	 * page cache.
+	 */
+	ret = ext4_break_layouts(inode);
+	if (ret)
+		goto out_mmap;
+	/*
+	 * Need to round down offset to be aligned with page size boundary
+	 * for page size > block size.
+	 */
+	ioffset = round_down(offset, PAGE_SIZE);
+	/*
+	 * Write tail of the last page before removed range since it will get
+	 * removed from the page cache below.
+	 */
+	ret = filemap_write_and_wait_range(inode->i_mapping, ioffset, offset);
+	if (ret) {
+		goto out_mmap;
+	}
+	/*
+	 * Write data that will be shifted to preserve them when discarding
+	 * page cache below. We are also protected from pages becoming dirty
+	 * by i_mmap_sem.
+	 */
+	ret = filemap_write_and_wait_range(inode->i_mapping, offset + len,
+					   LLONG_MAX);
+	if (ret) {
+		goto out_mmap;
+	}
+	truncate_pagecache(inode, ioffset);
+
+	ext4_discard_preallocations(inode);
+
+	ret = ext4_es_remove_extent(inode, punch_start,
+				    EXT_MAX_BLOCKS - punch_start);
+	if (ret) {
+		goto out_stop;
+	}
+
+	ret = ext4_ext_remove_space(inode, punch_start, punch_stop - 1);
+	if (ret) {
+		goto out_stop;
+	}
+	ext4_discard_preallocations(inode);
+
+	ret = ext4_ext_shift_extents(inode, handle, punch_stop,
+				     punch_stop - punch_start, SHIFT_LEFT);
+	if (ret) {
+		goto out_stop;
+	}
+
+	new_size = i_size_read(inode) - len;
+	i_size_write(inode, new_size);
+	EXT4_I(inode)->i_disksize = new_size;
+
+	if (IS_SYNC(inode))
+		ext4_handle_sync(handle);
+	inode->i_mtime = inode->i_ctime = current_time(inode);
+	ext4_mark_inode_dirty(handle, inode);
+	ext4_update_inode_fsync_trans(handle, inode, 1);
+
+out_stop:
+	// Do nothing
+out_mmap:
+	// Do nothing
+out_mutex:
 	return ret;
 }
 
@@ -6078,10 +6199,10 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 	struct ext4_ext_path *receiver_path = NULL;
 	int replaced_count = 0;
 
-	BUG_ON(!rwsem_is_locked(&EXT4_I(inode1)->i_data_sem));
-	BUG_ON(!rwsem_is_locked(&EXT4_I(inode2)->i_data_sem));
-	BUG_ON(!inode_is_locked(inode1));
-	BUG_ON(!inode_is_locked(inode2));
+	BUG_ON(!rwsem_is_locked(&EXT4_I(receiver_inode)->i_data_sem));
+	BUG_ON(!rwsem_is_locked(&EXT4_I(donor_inode)->i_data_sem));
+	BUG_ON(!inode_is_locked(receiver_inode));
+	BUG_ON(!inode_is_locked(donor_inode));
 
 	*erp = ext4_es_remove_extent(receiver_inode, rec_lblk, count);
 	if (unlikely(*erp))
@@ -6130,7 +6251,7 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 			next1 = ext4_ext_next_allocated_block(receiver_path);
 			next2 = ext4_ext_next_allocated_block(donor_path);
 			/* If hole before extent, then shift to that extent */
-			if (e1r_blk > rec_lblk)
+			if (er_blk > rec_lblk)
 				next1 = er_blk;
 			if (ed_blk > donor_lblk)
 				next2 = ed_blk;
@@ -6211,7 +6332,7 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 		donor_ex->ee_len = cpu_to_le16(er_len);
 
 		ext4_ext_try_to_merge(handle, donor_inode, donor_path, donor_ex);
-		ext4_ext_try_to_merge(handle, receiver_inode, receiver_path, receiver_ex);
+		ext4_ext_try_to_merge(handle, receiver_inode, receiver_path, rec_ex);
 		*erp = ext4_ext_dirty(handle, donor_inode, donor_path +
 				      donor_path->p_depth);
 		if (unlikely(*erp))

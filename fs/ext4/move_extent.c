@@ -451,11 +451,11 @@ static int
 move_meta_extent_per_page(handle_t *handle, struct file *o_filp, struct inode *donor_inode,
 		     pgoff_t rec_page_offset, pgoff_t donor_page_offset,
 		     int data_offset_in_page,
-		     int block_len_in_page, int unwritten, int *err)
+		     int block_len_in_page, int *err)
 {
 	struct inode *rec_inode = file_inode(o_filp);
 	ext4_lblk_t rec_blk_offset, donor_blk_offset;
-	unsigned long blocksize = orig_inode->i_sb->s_blocksize;
+	unsigned long blocksize = rec_inode->i_sb->s_blocksize;
 	unsigned int tmp_data_size, data_size, replaced_size;
 	int replaced_count = 0, retries = 0;
 	int blocks_per_page = PAGE_SIZE >> rec_inode->i_blkbits;
@@ -500,7 +500,7 @@ again:
 						donor_blk_offset,
 						block_len_in_page, 1, err);
 
-	ext4_double_up_write_data_sem(orig_inode, donor_inode);
+	ext4_double_up_write_data_sem(rec_inode, donor_inode);
 
 unlock_pages:
 	if (*err == -ENOSPC &&
@@ -835,8 +835,6 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 	ext4_fallocate_for_dr(handle, file1, 0, offset1, count);
 
 	/* Wait for all existing dio workers */
-	ext4_inode_block_unlocked_dio(rec_inode);
-	ext4_inode_block_unlocked_dio(donor_inode);
 	inode_dio_wait(rec_inode);
 	inode_dio_wait(donor_inode);
 
@@ -946,10 +944,8 @@ out:
 	ext4_ext_drop_refs(path);
 	kfree(path);
 	ext4_double_up_write_data_sem(rec_inode, donor_inode);
-	ext4_inode_resume_unlocked_dio(rec_inode);
-	ext4_inode_resume_unlocked_dio(donor_inode);
 
-	ext4_journal_stop(handle)
+	ext4_journal_stop(handle);
 	unlock_two_nondirectories(rec_inode, donor_inode);
 
 	return size_remapped;

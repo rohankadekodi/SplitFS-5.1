@@ -341,12 +341,12 @@ long vfs_dynamic_remap(struct file *file1, struct file *file2,
 {
 	struct inode *inode1 = file_inode(file1);
 	struct inode *inode2 = file_inode(file2);
-	
+
 	long ret = 0;
 	long ret_remap = 0;
 	size_t len = 0, max_page_dirty = 0;
 	unsigned long end_offset = 0, start_offset = 0;
-	
+
 	LIST_HEAD(uf);
 
 	if (offset1 < 0 || offset2 < 0 || count <= 0)
@@ -375,7 +375,7 @@ long vfs_dynamic_remap(struct file *file1, struct file *file2,
 	ret = security_file_permission(file2, MAY_WRITE);
 	if (ret)
 		return ret;
-	
+
 	if (S_ISFIFO(inode1->i_mode) || S_ISFIFO(inode2->i_mode))
 		return -ESPIPE;
 
@@ -387,7 +387,7 @@ long vfs_dynamic_remap(struct file *file1, struct file *file2,
 
 	if (!S_ISREG(inode2->i_mode) && !S_ISBLK(inode2->i_mode))
 		return -ENODEV;
-	
+
 	/* Check for wrap through zero too */
 	if (((offset1 + count) > inode1->i_sb->s_maxbytes) || ((offset1 + count) < 0))
 		return -EFBIG;
@@ -395,9 +395,9 @@ long vfs_dynamic_remap(struct file *file1, struct file *file2,
 	/* Check for wrap through zero too */
 	if (((offset2 + count) > inode2->i_sb->s_maxbytes) || ((offset2 + count) < 0))
 		return -EFBIG;
-	
+
 	if (!file1->f_op->dynamic_remap)
-		return -EOPNOTSUPP;	
+		return -EOPNOTSUPP;
 
 	// perform write on the unaligned portion
 	start_offset = offset2;
@@ -408,16 +408,16 @@ long vfs_dynamic_remap(struct file *file1, struct file *file2,
 		ret = vfs_write(file1, start_addr + offset2, len, &offset1);
 		if (ret < len) {
 			goto out;
-		}			
+		}
 		count -= ret;
 		offset1 += ret;
-		offset2 += ret;		
+		offset2 += ret;
 	}
 
 	if (count == 0) {
 		goto out;
 	}
-	
+
 	file_start_write(file1);
 	file_start_write(file2);
 
@@ -426,7 +426,7 @@ long vfs_dynamic_remap(struct file *file1, struct file *file2,
 	offset2 += ret_remap;
 	count -= ret_remap;
 	ret += ret_remap;
-	
+
 	/*
 	 * Create inotify and fanotify events.
 	 *
@@ -438,7 +438,7 @@ long vfs_dynamic_remap(struct file *file1, struct file *file2,
 		fsnotify_modify(file1);
 		fsnotify_modify(file2);
 	}
-		
+
 	file_end_write(file1);
 	file_end_write(file2);
 
@@ -466,7 +466,7 @@ SYSCALL_DEFINE6(dynamic_remap, int, fd1, int, fd2,
 		fdput(f1);
 		fdput(f2);
 	}
-	return error;	
+	return error;
 }
 
 /*

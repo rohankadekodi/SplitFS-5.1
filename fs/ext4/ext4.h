@@ -2572,6 +2572,7 @@ extern int ext4_can_truncate(struct inode *inode);
 extern int ext4_truncate(struct inode *);
 extern int ext4_break_layouts(struct inode *);
 extern int ext4_punch_hole(struct inode *inode, loff_t offset, loff_t length);
+extern int ext4_meta_punch_hole(struct inode *inode, loff_t offset, loff_t length, handle_t *handle);
 extern int ext4_truncate_restart_trans(handle_t *, struct inode *, int nblocks);
 extern void ext4_set_inode_flags(struct inode *);
 extern int ext4_alloc_da_blocks(struct inode *inode);
@@ -3255,6 +3256,7 @@ extern int ext4_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 			__u64 start, __u64 len);
 extern int ext4_ext_precache(struct inode *inode);
 extern int ext4_collapse_range(struct inode *inode, loff_t offset, loff_t len);
+extern int ext4_meta_collapse_range(struct inode *inode, loff_t offset, loff_t len, handle_t *handle);
 extern int ext4_insert_range(struct inode *inode, loff_t offset, loff_t len);
 extern int ext4_swap_extents(handle_t *handle, struct inode *inode1,
 				struct inode *inode2, ext4_lblk_t lblk1,

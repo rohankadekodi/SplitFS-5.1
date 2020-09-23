@@ -818,6 +818,10 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 	ext4_lblk_t rec_blk, donor_blk;
 	int ret, jblocks = 0, credits = 0;
 	long size_remapped = 0;
+	int commit_tid, err;
+	bool needs_barrier;
+	struct ext4_inode_info *ei = EXT4_I(rec_inode);
+	journal_t *journal = EXT4_SB(rec_inode->i_sb)->s_journal;
 
 	/* Protect rec and donor inodes against a truncate */
 	lock_two_nondirectories(rec_inode, donor_inode);
@@ -947,6 +951,17 @@ out:
 
 	ext4_journal_stop(handle);
 	unlock_two_nondirectories(rec_inode, donor_inode);
+
+	commit_tid = ei->i_sync_tid;
+	if (journal->j_flags & JBD2_BARRIER &&
+	    !jbd2_trans_will_send_data_barrier(journal, commit_tid))
+		needs_barrier = true;
+	ret = ext4_fc_commit(journal, commit_tid);
+	if (needs_barrier) {
+		err = blkdev_issue_flush(rec_inode->i_sb->s_bdev, GFP_KERNEL, NULL);
+		if (err)
+			BUG();
+	}
 
 	return size_remapped;
 }

@@ -3264,7 +3264,7 @@ extern int ext4_swap_extents(handle_t *handle, struct inode *inode1,
 			     int mark_unwritten,int *err);
 extern int ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 				  struct inode *donor_inode, ext4_lblk_t rec_lblk, ext4_lblk_t donor_lblk,
-				  ext4_lblk_t count, int unwritten, int *erp);
+				  ext4_lblk_t count, int *erp);
 extern int ext4_clu_mapped(struct inode *inode, ext4_lblk_t lclu);
 extern void ext4_ext_replay_shrink_inode(struct inode *inode, ext4_lblk_t end);
 extern int ext4_ext_replay_set_iblocks(struct inode *inode);

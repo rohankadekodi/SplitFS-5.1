@@ -4323,10 +4323,6 @@ int ext4_meta_punch_hole(struct inode *inode, loff_t offset, loff_t length, hand
 	 * Prevent page faults from reinstantiating pages we have released from
 	 * page cache.
 	 */
-	ret = ext4_break_layouts(inode);
-	if (ret)
-		goto out_dio;
-
 	first_block_offset = round_up(offset, sb->s_blocksize);
 	last_block_offset = round_down((offset + length), sb->s_blocksize) - 1;
 
@@ -4352,23 +4348,23 @@ int ext4_meta_punch_hole(struct inode *inode, loff_t offset, loff_t length, hand
 	stop_block = (offset + length) >> EXT4_BLOCK_SIZE_BITS(sb);
 
 	/* If there are no blocks to remove, return now */
-	if (stop_block > first_block) {
+	if (first_block >= stop_block)
+		goto out_stop;
 
-		ext4_discard_preallocations(inode);
+	ext4_discard_preallocations(inode);
 
-		ret = ext4_es_remove_extent(inode, first_block,
-					    stop_block - first_block);
-		if (ret) {
-			goto out_stop;
-		}
-
-		if (ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS))
-			ret = ext4_ext_remove_space(inode, first_block,
-						    stop_block - 1);
-		else
-			ret = ext4_ind_remove_space(handle, inode, first_block,
-						    stop_block);
+	ret = ext4_es_remove_extent(inode, first_block,
+				    stop_block - first_block);
+	if (ret) {
+		goto out_stop;
 	}
+
+	if (ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS))
+		ret = ext4_ext_remove_space(inode, first_block,
+					    stop_block - 1);
+	else
+		ret = ext4_ind_remove_space(handle, inode, first_block,
+					    stop_block);
 
 	if (IS_SYNC(inode))
 		ext4_handle_sync(handle);

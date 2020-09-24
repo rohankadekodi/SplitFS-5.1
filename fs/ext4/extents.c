@@ -5581,9 +5581,6 @@ int ext4_meta_collapse_range(struct inode *inode, loff_t offset, loff_t len, han
 	 * Prevent page faults from reinstantiating pages we have released from
 	 * page cache.
 	 */
-	ret = ext4_break_layouts(inode);
-	if (ret)
-		goto out_mmap;
 	/*
 	 * Need to round down offset to be aligned with page size boundary
 	 * for page size > block size.
@@ -6192,8 +6189,9 @@ ext4_swap_extents(handle_t *handle, struct inode *inode1,
  */
 int
 ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
-		  struct inode *donor_inode, ext4_lblk_t rec_lblk, ext4_lblk_t donor_lblk,
-		  ext4_lblk_t count, int unwritten, int *erp)
+		  struct inode *donor_inode, ext4_lblk_t rec_lblk,
+		  ext4_lblk_t donor_lblk,
+		  ext4_lblk_t count, int *erp)
 {
 	struct ext4_ext_path *donor_path = NULL;
 	struct ext4_ext_path *receiver_path = NULL;
@@ -6316,7 +6314,6 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 		if (split)
 			goto repeat;
 
-		BUG_ON(ed_len != er_len);
 		*erp = ext4_ext_get_access(handle, receiver_inode, receiver_path + receiver_path->p_depth);
 		if (unlikely(*erp))
 			goto finish;
@@ -6339,14 +6336,9 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 			goto finish;
 		*erp = ext4_ext_dirty(handle, receiver_inode, receiver_path +
 				      receiver_path->p_depth);
-		/*
-		 * Looks scarry ah..? second inode already points to new blocks,
-		 * and it was successfully dirtied. But luckily error may happen
-		 * only due to journal error, so full transaction will be
-		 * aborted anyway.
-		 */
 		if (unlikely(*erp))
 			goto finish;
+
 		rec_lblk += len;
 		donor_lblk += len;
 		replaced_count += len;

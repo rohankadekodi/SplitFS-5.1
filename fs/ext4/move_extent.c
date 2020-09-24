@@ -498,7 +498,7 @@ again:
 	replaced_count = ext4_meta_swap_extents(handle, rec_inode,
 						donor_inode, rec_blk_offset,
 						donor_blk_offset,
-						block_len_in_page, 1, err);
+						block_len_in_page, err);
 
 	ext4_double_up_write_data_sem(rec_inode, donor_inode);
 
@@ -818,10 +818,6 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 	ext4_lblk_t rec_blk, donor_blk;
 	int ret, jblocks = 0, credits = 0;
 	long size_remapped = 0;
-	int commit_tid, err;
-	bool needs_barrier;
-	struct ext4_inode_info *ei = EXT4_I(rec_inode);
-	journal_t *journal = EXT4_SB(rec_inode->i_sb)->s_journal;
 
 	/* Protect rec and donor inodes against a truncate */
 	lock_two_nondirectories(rec_inode, donor_inode);
@@ -862,6 +858,7 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 				    donor_blk, &len);
 	if (ret)
 		goto out;
+
 	o_end = o_start + len;
 
 	while (o_start < o_end) {

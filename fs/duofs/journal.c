@@ -470,7 +470,7 @@ int pmfs_journal_hard_init(struct super_block *sb, uint64_t base,
 	pmfs_journal_t *journal;
 	int i;
 
-	sbi->journal_base_addr = (void **) kmalloc(sizeof(void*), GFP_KERNEL);
+	sbi->journal_base_addr = (void **) kmalloc(sizeof(void*) * sbi->cpus, GFP_KERNEL);
 	for (i = 0; i < sbi->cpus; i++) {
 		journal = pmfs_get_journal(sb, i);
 

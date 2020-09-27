@@ -3138,6 +3138,7 @@ extern int ext4_inline_data_iomap(struct inode *inode, struct iomap *iomap);
 extern int ext4_inline_data_truncate(struct inode *inode, int *has_inline);
 
 extern int ext4_convert_inline_data(struct inode *inode);
+extern int ext4_meta_convert_inline_data(struct inode *inode, handle_t *handle);
 
 static inline int ext4_has_inline_data(struct inode *inode)
 {
@@ -3225,6 +3226,8 @@ extern int ext4_ext_map_blocks(handle_t *handle, struct inode *inode,
 extern int ext4_ext_truncate(handle_t *, struct inode *);
 extern int ext4_ext_remove_space(struct inode *inode, ext4_lblk_t start,
 				 ext4_lblk_t end);
+extern int ext4_meta_ext_remove_space(struct inode *inode, ext4_lblk_t start,
+				      ext4_lblk_t end, handle_t *handle);
 extern void ext4_ext_init(struct super_block *);
 extern void ext4_ext_release(struct super_block *);
 extern long ext4_fallocate(struct file *file, int mode, loff_t offset,

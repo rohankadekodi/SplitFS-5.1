@@ -500,6 +500,11 @@ again:
 						donor_blk_offset,
 						block_len_in_page, err);
 
+	if (replaced_count != block_len_in_page) {
+		printk(KERN_INFO "%s: replaced_count = %d, block_len_in_page = %d\n", __func__, replaced_count, block_len_in_page);
+		//BUG();
+	}
+
 	ext4_double_up_write_data_sem(rec_inode, donor_inode);
 
 unlock_pages:
@@ -818,10 +823,12 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 	ext4_lblk_t rec_blk, donor_blk;
 	int ret, jblocks = 0, credits = 0;
 	long size_remapped = 0;
+	int moved_count;
 
 	/* Protect rec and donor inodes against a truncate */
 	lock_two_nondirectories(rec_inode, donor_inode);
 
+	len = (count >> blkbits);
 	jblocks = ext4_writepage_trans_blocks(rec_inode) * 2;
 	credits = ext4_chunk_trans_blocks(rec_inode, len);
 	jblocks = jblocks + credits;
@@ -832,7 +839,8 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 	}
 
 	// Call the ext4_fallocate function to allocate memory to file 1.
-	ext4_fallocate_for_dr(handle, file1, 0, offset1, count);
+	if (ext4_fallocate_for_dr(handle, file1, 0, offset1, count))
+		BUG();
 
 	/* Wait for all existing dio workers */
 	inode_dio_wait(rec_inode);
@@ -842,7 +850,6 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 	ext4_double_down_write_data_sem(rec_inode, donor_inode);
 
 	// Change the offset and count to logical blocks and counts in blocks
-	len = (count >> blkbits);
 	if (count % PAGE_SIZE != 0)
 		len += 1;
 	o_start = offset1 >> blkbits;
@@ -915,12 +922,22 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 		 */
 		ext4_double_up_write_data_sem(rec_inode, donor_inode);
 		/* Swap original branches with new branches */
-		move_meta_extent_per_page(handle, file1, donor_inode,
-					  rec_page_index, donor_page_index,
-					  offset_in_page, cur_len, &ret);
+		moved_count = move_meta_extent_per_page(handle, file1, donor_inode,
+							rec_page_index, donor_page_index,
+							offset_in_page, cur_len, &ret);
+
 		ext4_double_down_write_data_sem(rec_inode, donor_inode);
+
+		if (moved_count != cur_len) {
+			printk(KERN_INFO "%s: moved_count = %d, cur_len = %d\n",
+			       __func__, moved_count, cur_len);
+			//BUG();
+			goto finish;
+		}
+
 		if (ret < 0)
 			break;
+
 		o_start += cur_len;
 		d_start += cur_len;
 	}
@@ -930,8 +947,11 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 		len = len - (len % PAGE_SIZE);
 	if (offset2 % PAGE_SIZE != 0)
 		offset2 = offset2 + (PAGE_SIZE - (offset2 % PAGE_SIZE));
-	ext4_fallocate_for_dr(handle, file2, FALLOC_FL_PUNCH_HOLE, offset2, len);
 
+	if (ext4_fallocate_for_dr(handle, file2, FALLOC_FL_PUNCH_HOLE, offset2, len))
+		BUG();
+
+finish:
 	size_remapped = (o_start - rec_blk) << blkbits;
 	if (size_remapped > count)
 		size_remapped = count;
@@ -946,7 +966,10 @@ out:
 	kfree(path);
 	ext4_double_up_write_data_sem(rec_inode, donor_inode);
 
-	ext4_journal_stop(handle);
+	if (ext4_journal_stop(handle)) {
+		BUG();
+	}
+
 	unlock_two_nondirectories(rec_inode, donor_inode);
 
 	/*

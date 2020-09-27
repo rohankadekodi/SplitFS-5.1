@@ -1997,6 +1997,32 @@ out:
 	return err;
 }
 
+int ext4_meta_convert_inline_data(struct inode *inode, handle_t *handle)
+{
+	int error, needed_blocks, no_expand;
+	struct ext4_iloc iloc;
+
+	if (!ext4_has_inline_data(inode)) {
+		ext4_clear_inode_state(inode, EXT4_STATE_MAY_INLINE_DATA);
+		return 0;
+	}
+
+	needed_blocks = ext4_writepage_trans_blocks(inode);
+
+	iloc.bh = NULL;
+	error = ext4_get_inode_loc(inode, &iloc);
+	if (error)
+		return error;
+
+	ext4_write_lock_xattr(inode, &no_expand);
+	if (ext4_has_inline_data(inode))
+		error = ext4_convert_inline_data_nolock(handle, inode, &iloc);
+	ext4_write_unlock_xattr(inode, &no_expand);
+out_free:
+	brelse(iloc.bh);
+	return error;
+}
+
 int ext4_convert_inline_data(struct inode *inode)
 {
 	int error, needed_blocks, no_expand;

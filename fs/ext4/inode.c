@@ -4360,17 +4360,16 @@ int ext4_meta_punch_hole(struct inode *inode, loff_t offset, loff_t length, hand
 	}
 
 	if (ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS))
-		ret = ext4_ext_remove_space(inode, first_block,
-					    stop_block - 1);
-	else
-		ret = ext4_ind_remove_space(handle, inode, first_block,
-					    stop_block);
+		ret = ext4_meta_ext_remove_space(inode, first_block,
+						 stop_block - 1, handle);
 
 	if (IS_SYNC(inode))
 		ext4_handle_sync(handle);
 
 	inode->i_mtime = inode->i_ctime = current_time(inode);
-	ext4_mark_inode_dirty(handle, inode);
+	if (ext4_mark_inode_dirty(handle, inode))
+		BUG();
+
 	if (ret >= 0)
 		ext4_update_inode_fsync_trans(handle, inode, 1);
 out_stop:

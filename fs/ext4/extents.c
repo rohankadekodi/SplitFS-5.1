@@ -6445,6 +6445,7 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 	struct ext4_ext_path *donor_path = NULL;
 	struct ext4_ext_path *receiver_path = NULL;
 	int replaced_count = 0;
+	int initial_count = count;
 
 	BUG_ON(!rwsem_is_locked(&EXT4_I(receiver_inode)->i_data_sem));
 	BUG_ON(!rwsem_is_locked(&EXT4_I(donor_inode)->i_data_sem));
@@ -6609,11 +6610,11 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 		*erp = ext4_ext_dirty(handle, donor_inode, donor_path +
 				      donor_path->p_depth);
 		if (unlikely(*erp)) {
-			if (*erp == -ENOSPC) {
-				jbd2_journal_extend(handle, count);
+			if (*erp == -ENOSPC || *erp == ENOSPC) {
+				jbd2_journal_extend(handle, initial_count);
 				goto donor_ext_dirty;
 			} else {
-				printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
+				printk(KERN_INFO "%s: %d. *erp = %d\n", __func__, __LINE__, *erp);
 				goto finish;
 			}
 		}
@@ -6621,11 +6622,11 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 		*erp = ext4_ext_dirty(handle, receiver_inode, receiver_path +
 				      receiver_path->p_depth);
 		if (unlikely(*erp)) {
-			if (*erp == -ENOSPC) {
-				jbd2_journal_extend(handle, count);
+			if (*erp == -ENOSPC || *erp == ENOSPC) {
+				jbd2_journal_extend(handle, initial_count);
 				goto rec_ext_dirty;
 			} else {
-				printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
+				printk(KERN_INFO "%s: %d. *erp = %d\n", __func__, __LINE__, *erp);
 				goto finish;
 			}
 		}

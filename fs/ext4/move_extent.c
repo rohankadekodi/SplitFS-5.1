@@ -818,19 +818,44 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 	int blocks_per_page = PAGE_SIZE >> rec_inode->i_blkbits;
 	unsigned int blkbits = rec_inode->i_blkbits;
 	ext4_lblk_t o_end, o_start = 0;
-	ext4_lblk_t d_start = 0, d_trunc_start = 0, d_trunc_end = 0;
+	ext4_lblk_t d_start = 0, d_trunc_start = 0, d_trunc_end = 0, d_end = 0;
 	__u64 len;
 	ext4_lblk_t rec_blk, donor_blk;
 	int ret, jblocks = 0, credits = 0;
 	long size_remapped = 0;
 	int moved_count;
+	ext4_lblk_t cur_lblk;
+	int donor_pextents = 0;
+	struct ext4_map_blocks map;
 
 	/* Protect rec and donor inodes against a truncate */
 	lock_two_nondirectories(rec_inode, donor_inode);
 
+	d_start = offset2 >> blkbits;
 	len = (count >> blkbits);
-	jblocks = ext4_writepage_trans_blocks(rec_inode) * 2;
-	credits = ext4_chunk_trans_blocks(rec_inode, len);
+
+	cur_lblk = d_start;
+	while (cur_lblk < d_end) {
+		map.m_lblk = cur_lblk;
+		map.m_len = d_end - cur_lblk;
+		ret = ext4_map_blocks(NULL, donor_inode, &map, 0);
+		if (ret < 0) {
+			BUG();
+		}
+
+		if (map.m_len == 0) {
+			cur_lblk++;
+			continue;
+		}
+
+		donor_pextents++;
+		cur_lblk += map.m_len;
+	}
+
+	//jblocks = ext4_writepage_trans_blocks(rec_inode) * 2;
+	jblocks = 10;
+	credits = ext4_multi_chunk_trans_blocks(rec_inode, len, donor_pextents) * 2;
+	//credits = ext4_chunk_trans_blocks(rec_inode, len);
 	jblocks = jblocks + credits;
 	handle = ext4_journal_start(rec_inode, EXT4_HT_MOVE_EXTENTS, jblocks);
 	if (IS_ERR(handle)) {
@@ -854,7 +879,6 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 		len += 1;
 	o_start = offset1 >> blkbits;
 	o_end = o_start + len;
-	d_start = offset2 >> blkbits;
 	d_trunc_start = d_start;
 	d_trunc_end = d_start + len - 1;
 	rec_blk = o_start;

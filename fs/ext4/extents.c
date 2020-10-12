@@ -6605,17 +6605,29 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 
 		ext4_ext_try_to_merge(handle, donor_inode, donor_path, donor_ex);
 		ext4_ext_try_to_merge(handle, receiver_inode, receiver_path, rec_ex);
+	donor_ext_dirty:
 		*erp = ext4_ext_dirty(handle, donor_inode, donor_path +
 				      donor_path->p_depth);
 		if (unlikely(*erp)) {
-			printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
-			goto finish;
+			if (*erp == -ENOSPC) {
+				jbd2_journal_extend(handle, count);
+				goto donor_ext_dirty;
+			} else {
+				printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
+				goto finish;
+			}
 		}
+	rec_ext_dirty:
 		*erp = ext4_ext_dirty(handle, receiver_inode, receiver_path +
 				      receiver_path->p_depth);
 		if (unlikely(*erp)) {
-			printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
-			goto finish;
+			if (*erp == -ENOSPC) {
+				jbd2_journal_extend(handle, count);
+				goto rec_ext_dirty;
+			} else {
+				printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
+				goto finish;
+			}
 		}
 
 		rec_lblk += len;

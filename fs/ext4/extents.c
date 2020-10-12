@@ -6452,6 +6452,10 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 	BUG_ON(!inode_is_locked(receiver_inode));
 	BUG_ON(!inode_is_locked(donor_inode));
 
+	while (handle->h_buffer_credits < 22) {
+		ext4_journal_extend(handle, 22);
+	}
+
 	*erp = ext4_es_remove_extent(receiver_inode, rec_lblk, count);
 	if (unlikely(*erp)) {
 		printk(KERN_INFO "%s: %d\n", __func__, __LINE__);

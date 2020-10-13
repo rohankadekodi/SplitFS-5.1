@@ -11,6 +11,7 @@
 #include "ext4_jbd2.h"
 #include "ext4.h"
 #include "ext4_extents.h"
+#include "truncate.h"
 
 /**
  * get_ext_path - Find an extent path for designated logical block number.
@@ -787,6 +788,7 @@ out:
 }
 
 
+#if 0
 /**
  * ext4_dynamic_remap - Extend file 1 and swap extents between file 1 and file 2
  *
@@ -862,6 +864,8 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 		ret = PTR_ERR(handle);
 		return 0;
 	}
+
+	printk(KERN_INFO "%s: number of credits requested = %d. number of credits received = %d. Swapping blocks = %d\n", __func__, jblocks + credits, handle->h_buffer_credits, len);
 
 	// Call the ext4_fallocate function to allocate memory to file 1.
 	if (ext4_fallocate_for_dr(handle, file1, 0, offset1, count))
@@ -1010,4 +1014,129 @@ out:
 	*/
 
 	return size_remapped;
+}
+#endif
+
+
+/**
+ * ext4_dynamic_remap - Extend file 1 and swap extents between file 1 and file 2
+ *
+ * @file1:	First file
+ * @file2:	Second inode
+ * @offset1:	Start offset for first inode
+ * @offset2:	Start offset for second inode
+ * @count:	Number of bytes to swap
+ *
+ * This helper routine initally extends file 1 by count blocks, and
+ * then calls ext4_meta_swap_extents to swap the extents between file 1 
+ * and file 2 without transferring any data between them . 
+ *
+ * Locking:
+ * 		i_mutex is held for both inodes
+ * 		i_data_sem is locked for write for both inodes
+ * Assumptions:
+ *		All pages from requested range are locked for both inodes
+ */
+long
+ext4_dynamic_remap(struct file *file1, struct file *file2,
+		  loff_t offset1, loff_t offset2,
+		   loff_t count)
+{
+	struct inode *rec_inode = file_inode(file1);
+	struct inode *donor_inode = file_inode(file2);
+	struct ext4_ext_path *path = NULL;
+	handle_t *handle;
+	unsigned int blkbits = rec_inode->i_blkbits;
+	ext4_lblk_t d_start = 0, d_end = 0;
+	__u64 len;
+	int ret, credits_alloc, credits_punch_hole, credits = 0;
+	long size_remapped = 0;
+	ext4_lblk_t cur_lblk, rec_cur_lblk;
+	int donor_pextents = 0;
+	struct ext4_map_blocks map;
+	ext4_lblk_t r_start, r_end;
+	struct ext4_extent newex, *ex;
+
+	/* Protect rec and donor inodes against a truncate */
+	lock_two_nondirectories(rec_inode, donor_inode);
+
+	d_start = offset2 >> blkbits;
+	r_start = offset1 >> blkbits;
+	len = (count >> blkbits);
+	d_end = d_start + len;
+	r_end = r_start + len;
+
+	cur_lblk = d_start;
+	rec_cur_lblk = r_start;
+
+	while (cur_lblk < d_end) {
+		map.m_lblk = cur_lblk;
+		map.m_len = d_end - cur_lblk;
+		ret = ext4_map_blocks(NULL, donor_inode, &map, 0);
+		if (ret < 0) {
+			BUG();
+		}
+
+		if (map.m_len == 0) {
+			cur_lblk++;
+			rec_cur_lblk++;
+			continue;
+		}
+
+		//donor_pextents++;
+		//cur_lblk += map.m_len;
+		path = ext4_find_extent(rec_inode, rec_cur_lblk, NULL, 0);
+		if (!path)
+			continue;
+		memset(&newex, 0, sizeof(newex));
+		newex.ee_block = cpu_to_le32(rec_cur_lblk);
+		ext4_ext_store_pblock(&newex, map.m_pblk);
+		newex.ee_len = cpu_to_le16(map.m_len);
+
+		/*
+		  if (ext4_ext_is_unwritten(ex))
+		  ext4_ext_mark_unwritten(&newex);
+		*/
+
+		down_write(&EXT4_I(rec_inode)->i_data_sem);
+
+		/* Start handle */
+		credits_alloc = ext4_chunk_trans_blocks(rec_inode, len);
+		if (ext4_test_inode_flag(donor_inode, EXT4_INODE_EXTENTS))
+			credits_punch_hole = ext4_writepage_trans_blocks(donor_inode);
+		else
+			credits_punch_hole = ext4_blocks_for_truncate(donor_inode);
+
+		credits = credits_alloc + credits_punch_hole;
+		handle = ext4_journal_start(rec_inode, EXT4_HT_MOVE_EXTENTS, credits);
+		if (IS_ERR(handle))
+			BUG();
+
+		ret = ext4_ext_insert_extent(handle, rec_inode,
+					     &path, &newex, 0);
+
+		up_write((&EXT4_I(rec_inode)->i_data_sem));
+		ext4_ext_drop_refs(path);
+
+		kfree(path);
+		if (ret) {
+			BUG();
+		}
+
+		/* Punch hole in donor_inode */
+		if (ext4_fallocate_for_dr(handle, file2,
+					  FALLOC_FL_PUNCH_HOLE,
+					  cur_lblk << blkbits, len))
+			BUG();
+
+		/* Stop handle */
+		if (ext4_journal_stop(handle))
+			BUG();
+
+		cur_lblk += map.m_len;
+		rec_cur_lblk += map.m_len;
+	}
+
+	unlock_two_nondirectories(rec_inode, donor_inode);
+	return count;
 }

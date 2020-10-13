@@ -6541,6 +6541,11 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 		/* Prepare left boundary */
 		if (er_blk < rec_lblk) {
 			split = 1;
+
+			while (handle->h_buffer_credits < 22) {
+				jbd2_journal_extend(handle, 22);
+			}
+
 			*erp = ext4_force_split_extent_at(handle, receiver_inode,
 						&receiver_path, rec_lblk, 0);
 			if (unlikely(*erp))
@@ -6548,6 +6553,11 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 		}
 		if (ed_blk < donor_lblk) {
 			split = 1;
+
+			while (handle->h_buffer_credits < 22) {
+				jbd2_journal_extend(handle, 22);
+			}
+
 			*erp = ext4_force_split_extent_at(handle, donor_inode,
 						&donor_path,  donor_lblk, 0);
 			if (unlikely(*erp)) {
@@ -6569,6 +6579,11 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 
 		if (len != er_len) {
 			split = 1;
+
+			while (handle->h_buffer_credits < 22) {
+				jbd2_journal_extend(handle, 22);
+			}
+
 			*erp = ext4_force_split_extent_at(handle, receiver_inode,
 						&receiver_path, rec_lblk + len, 0);
 			if (unlikely(*erp)) {
@@ -6578,6 +6593,11 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 		}
 		if (len != ed_len) {
 			split = 1;
+
+			while (handle->h_buffer_credits < 22) {
+				jbd2_journal_extend(handle, 22);
+			}
+
 			*erp = ext4_force_split_extent_at(handle, donor_inode,
 						&donor_path, donor_lblk + len, 0);
 			if (*erp) {

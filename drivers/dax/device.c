@@ -184,7 +184,12 @@ static vm_fault_t __dev_dax_pmd_fault(struct dev_dax *dev_dax,
 
 	*pfn = phys_to_pfn_t(phys, dax_region->pfn_flags);
 
+	/*
 	return vmf_insert_pfn_pmd(vmf->vma, vmf->address, vmf->pmd, *pfn,
+			vmf->flags & FAULT_FLAG_WRITE);
+	*/
+
+	return vmf_insert_pfn_pmd(vmf,  *pfn,
 			vmf->flags & FAULT_FLAG_WRITE);
 }
 
@@ -235,7 +240,12 @@ static vm_fault_t __dev_dax_pud_fault(struct dev_dax *dev_dax,
 
 	*pfn = phys_to_pfn_t(phys, dax_region->pfn_flags);
 
+	/*
 	return vmf_insert_pfn_pud(vmf->vma, vmf->address, vmf->pud, *pfn,
+			vmf->flags & FAULT_FLAG_WRITE);
+	*/
+
+	return vmf_insert_pfn_pud(vmf, *pfn,
 			vmf->flags & FAULT_FLAG_WRITE);
 }
 #else

@@ -1575,7 +1575,11 @@ static vm_fault_t dax_iomap_pmd_fault(struct vm_fault *vmf, pfn_t *pfnp,
 		}
 
 		trace_dax_pmd_insert_mapping(inode, vmf, PMD_SIZE, pfn, entry);
+		/*
 		result = vmf_insert_pfn_pmd(vma, vmf->address, vmf->pmd, pfn,
+					    write);
+		*/
+		result = vmf_insert_pfn_pmd(vmf, pfn,
 					    write);
 		break;
 	case IOMAP_UNWRITTEN:
@@ -1685,9 +1689,14 @@ dax_insert_pfn_mkwrite(struct vm_fault *vmf, pfn_t pfn, unsigned int order)
 	if (order == 0)
 		ret = vmf_insert_mixed_mkwrite(vmf->vma, vmf->address, pfn);
 #ifdef CONFIG_FS_DAX_PMD
-	else if (order == PMD_ORDER)
+	else if (order == PMD_ORDER) {
+		/*
 		ret = vmf_insert_pfn_pmd(vmf->vma, vmf->address, vmf->pmd,
 			pfn, true);
+		*/
+		ret = vmf_insert_pfn_pmd(vmf,
+					 pfn, FAULT_FLAG_WRITE);
+	}
 #endif
 	else
 		ret = VM_FAULT_FALLBACK;

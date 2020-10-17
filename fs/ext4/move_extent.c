@@ -787,7 +787,6 @@ out:
 	return ret;
 }
 
-
 #if 0
 /**
  * ext4_dynamic_remap - Extend file 1 and swap extents between file 1 and file 2
@@ -1017,7 +1016,6 @@ out:
 }
 #endif
 
-
 /**
  * ext4_dynamic_remap - Extend file 1 and swap extents between file 1 and file 2
  *
@@ -1049,7 +1047,7 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 	unsigned int blkbits = rec_inode->i_blkbits;
 	ext4_lblk_t d_start = 0, d_end = 0;
 	__u64 len;
-	int ret, credits_alloc, credits_punch_hole, credits = 0;
+	int ret, credits_alloc, credits_punch_hole, rec_map_ret, credits = 0;
 	long size_remapped = 0;
 	ext4_lblk_t cur_lblk, rec_cur_lblk;
 	int donor_pextents = 0;
@@ -1069,9 +1067,11 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 	cur_lblk = d_start;
 	rec_cur_lblk = r_start;
 
+	printk(KERN_INFO "%s: before while loop\n", __func__);
 	while (cur_lblk < d_end) {
 		map.m_lblk = cur_lblk;
 		map.m_len = d_end - cur_lblk;
+		printk(KERN_INFO "%s: before donor map blocks\n", __func__);
 		ret = ext4_map_blocks(NULL, donor_inode, &map, 0);
 		if (ret < 0) {
 			BUG();
@@ -1083,8 +1083,15 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 			continue;
 		}
 
+
+		rec_map.m_lblk = rec_cur_lblk;
+		rec_map.m_len = map.m_len;
+		printk(KERN_INFO "%s: before rec inode map blocks\n", __func__);
+		rec_map_ret = ext4_map_blocks(NULL, rec_inode, &rec_map, 0);
+		
 		//donor_pextents++;
 		//cur_lblk += map.m_len;
+		printk(KERN_INFO "%s: before rec find extent\n", __func__);
 		path = ext4_find_extent(rec_inode, rec_cur_lblk, NULL, 0);
 		if (!path)
 			continue;
@@ -1109,15 +1116,12 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 
 		credits = credits_alloc + credits_punch_hole;
 
+		printk(KERN_INFO "%s: before journal start\n", __func__);
 		handle = ext4_journal_start(rec_inode, EXT4_HT_MOVE_EXTENTS, credits);
 		if (IS_ERR(handle))
 			BUG();
 
-		rec_map.m_lblk = rec_cur_lblk;
-		rec_map.m_len = map.m_len;
-		ret = ext4_map_blocks(NULL, rec_inode, &rec_map, 0);
-
-		if (ret > 0) {
+		if (rec_map_ret > 0) {
 		  printk(KERN_INFO "%s: removing space\n", __func__);
 		  if (ext4_meta_ext_remove_space(rec_inode, rec_cur_lblk,
 						 rec_cur_lblk + map.m_len - 1,
@@ -1126,6 +1130,7 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 
 		}
 
+		printk(KERN_INFO "%s: before insert extent\n", __func__);
 		ret = ext4_ext_insert_extent(handle, rec_inode,
 					     &path, &newex, 0);
 
@@ -1137,19 +1142,26 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 			BUG();
 		}
 
+		printk(KERN_INFO "%s: before update inode size\n", __func__);
+		ext4_update_inode_size(rec_inode, (rec_cur_lblk + map.m_len) << blkbits);
+		ext4_mark_inode_dirty(handle, rec_inode);
+
 		/* Punch hole in donor_inode */
+		printk(KERN_INFO "%s: before punch hole\n", __func__);
 		if (ext4_fallocate_for_dr(handle, file2,
 					  FALLOC_FL_PUNCH_HOLE,
 					  cur_lblk << blkbits, len))
 			BUG();
 
 		/* Stop handle */
+		printk(KERN_INFO "%s: before stop handle\n", __func__);
 		if (ext4_journal_stop(handle))
 			BUG();
 
 		cur_lblk += map.m_len;
 		rec_cur_lblk += map.m_len;
 	}
+	printk(KERN_INFO "%s: after while loop\n", __func__);
 
 	unlock_two_nondirectories(rec_inode, donor_inode);
 	return count;

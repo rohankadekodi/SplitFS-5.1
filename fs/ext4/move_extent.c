@@ -1053,7 +1053,7 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 	long size_remapped = 0;
 	ext4_lblk_t cur_lblk, rec_cur_lblk;
 	int donor_pextents = 0;
-	struct ext4_map_blocks map;
+	struct ext4_map_blocks map, rec_map;
 	ext4_lblk_t r_start, r_end;
 	struct ext4_extent newex, *ex;
 
@@ -1103,14 +1103,28 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 		/* Start handle */
 		credits_alloc = ext4_chunk_trans_blocks(rec_inode, len);
 		if (ext4_test_inode_flag(donor_inode, EXT4_INODE_EXTENTS))
-			credits_punch_hole = ext4_writepage_trans_blocks(donor_inode);
+			credits_punch_hole = ext4_writepage_trans_blocks(donor_inode)*2;
 		else
-			credits_punch_hole = ext4_blocks_for_truncate(donor_inode);
+			credits_punch_hole = ext4_blocks_for_truncate(donor_inode)*2;
 
 		credits = credits_alloc + credits_punch_hole;
+
 		handle = ext4_journal_start(rec_inode, EXT4_HT_MOVE_EXTENTS, credits);
 		if (IS_ERR(handle))
 			BUG();
+
+		rec_map.m_lblk = rec_cur_lblk;
+		rec_map.m_len = map.m_len;
+		ret = ext4_map_blocks(NULL, rec_inode, &rec_map, 0);
+
+		if (ret > 0) {
+		  printk(KERN_INFO "%s: removing space\n", __func__);
+		  if (ext4_meta_ext_remove_space(rec_inode, rec_cur_lblk,
+						 rec_cur_lblk + map.m_len - 1,
+						 handle))
+		    BUG();
+
+		}
 
 		ret = ext4_ext_insert_extent(handle, rec_inode,
 					     &path, &newex, 0);

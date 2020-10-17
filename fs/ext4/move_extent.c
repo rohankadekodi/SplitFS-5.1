@@ -1054,6 +1054,7 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 	struct ext4_map_blocks map, rec_map;
 	ext4_lblk_t r_start, r_end;
 	struct ext4_extent newex, *ex;
+	size_t newsize;
 
 	/* Protect rec and donor inodes against a truncate */
 	lock_two_nondirectories(rec_inode, donor_inode);
@@ -1061,6 +1062,9 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 	d_start = offset2 >> blkbits;
 	r_start = offset1 >> blkbits;
 	len = (count >> blkbits);
+	if ((offset1 + count) % PAGE_SIZE != 0) {
+	  len++;
+	}
 	d_end = d_start + len;
 	r_end = r_start + len;
 
@@ -1099,6 +1103,12 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 		newex.ee_block = cpu_to_le32(rec_cur_lblk);
 		ext4_ext_store_pblock(&newex, map.m_pblk);
 		newex.ee_len = cpu_to_le16(map.m_len);
+		printk(KERN_INFO "%s: newex.ee_block = %lu, "
+		       "newex.pblock = %lu, "
+		       "newex.ee_len = %lu\n",
+		       __func__, newex.ee_block,
+		       map.m_pblk,
+		       newex.ee_len);
 
 		/*
 		  if (ext4_ext_is_unwritten(ex))
@@ -1135,6 +1145,11 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 					     &path, &newex, 0);
 
 		up_write((&EXT4_I(rec_inode)->i_data_sem));
+
+		ext4_es_insert_extent(rec_inode, rec_cur_lblk,
+				      map.m_len, map.m_pblk,
+				      EXTENT_STATUS_WRITTEN);
+
 		ext4_ext_drop_refs(path);
 
 		kfree(path);
@@ -1143,21 +1158,35 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 		}
 
 		printk(KERN_INFO "%s: before update inode size\n", __func__);
-		ext4_update_inode_size(rec_inode, (rec_cur_lblk + map.m_len) << blkbits);
+		newsize = (rec_cur_lblk + map.m_len) << blkbits;
+		if (newsize > offset1 + count)
+		  newsize = offset1 + count;
+		ext4_update_inode_size(rec_inode, count);
 		ext4_mark_inode_dirty(handle, rec_inode);
 
 		/* Punch hole in donor_inode */
+		/*
 		printk(KERN_INFO "%s: before punch hole\n", __func__);
 		if (ext4_fallocate_for_dr(handle, file2,
 					  FALLOC_FL_PUNCH_HOLE,
 					  cur_lblk << blkbits, len))
 			BUG();
+		*/
 
 		/* Stop handle */
 		printk(KERN_INFO "%s: before stop handle\n", __func__);
 		if (ext4_journal_stop(handle))
 			BUG();
 
+		rec_map.m_lblk = rec_cur_lblk;
+		rec_map.m_len = map.m_len;
+		printk(KERN_INFO "%s: before rec inode map blocks at the end\n", __func__);
+		rec_map_ret = ext4_map_blocks(NULL, rec_inode, &rec_map, 0);
+		
+		printk(KERN_INFO "%s: rec_map.p_blk = %lu, rec_map.m_len = %lu, "
+		       "rec_map.lblk = %lu, ret = %d\n", __func__,
+		       rec_map.m_pblk, rec_map.m_len, rec_map.m_lblk, rec_map_ret);
+		
 		cur_lblk += map.m_len;
 		rec_cur_lblk += map.m_len;
 	}

@@ -2124,7 +2124,6 @@ has_space:
 		}
 	}
 
-	printk(KERN_INFO "%s: writing in nearex\n", __func__);
 	le16_add_cpu(&eh->eh_entries, 1);
 	path[depth].p_ext = nearex;
 	nearex->ee_block = newext->ee_block;

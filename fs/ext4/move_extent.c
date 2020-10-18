@@ -1105,8 +1105,6 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 		  ext4_ext_mark_unwritten(&newex);
 		*/
 
-		down_write(&EXT4_I(rec_inode)->i_data_sem);
-
 		/* Start handle */
 		credits_alloc = ext4_chunk_trans_blocks(rec_inode, len);
 		if (ext4_test_inode_flag(donor_inode, EXT4_INODE_EXTENTS))
@@ -1120,6 +1118,8 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 		if (IS_ERR(handle))
 			BUG();
 
+		down_write(&EXT4_I(rec_inode)->i_data_sem);
+
 		if (rec_map_ret > 0) {
 		  if (ext4_meta_ext_remove_space(rec_inode, rec_cur_lblk,
 						 rec_cur_lblk + map.m_len - 1,
@@ -1131,6 +1131,18 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 		ret = ext4_ext_insert_extent(handle, rec_inode,
 					     &path, &newex, 0);
 
+		up_write((&EXT4_I(rec_inode)->i_data_sem));
+		down_write(&EXT4_I(donor_inode)->i_data_sem);
+		
+		/* Punch hole in donor_inode */
+		if (ext4_fallocate_for_dr(handle, file2,
+					  FALLOC_FL_PUNCH_HOLE,
+					  cur_lblk << blkbits,
+					  map.m_len << blkbits))
+			BUG();
+
+		up_write(&EXT4_I(donor_inode)->i_data_sem);
+
 		ext4_es_insert_extent(rec_inode, rec_cur_lblk,
 				      map.m_len, map.m_pblk,
 				      EXTENT_STATUS_WRITTEN);
@@ -1139,6 +1151,8 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 
 		kfree(path);
 		if (ret) {
+		  printk(KERN_INFO "%s: ext4_ext_insert_extent failed. Err = %d\n",
+			 __func__, ret);
 			BUG();
 		}
 
@@ -1148,14 +1162,6 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 		ext4_update_inode_size(rec_inode, newsize);
 		ext4_mark_inode_dirty(handle, rec_inode);
 
-		/* Punch hole in donor_inode */
-		if (ext4_fallocate_for_dr(handle, file2,
-					  FALLOC_FL_PUNCH_HOLE,
-					  cur_lblk << blkbits,
-					  map.m_len << blkbits))
-			BUG();
-
-		up_write((&EXT4_I(rec_inode)->i_data_sem));
 		/* Stop handle */
 		if (ext4_journal_stop(handle))
 			BUG();

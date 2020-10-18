@@ -1117,8 +1117,9 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 			BUG();
 
 	remove_rec_space:
+		down_write(&EXT4_I(rec_inode)->i_data_sem);
+
 		if (rec_map_ret > 0) {
-		  down_write(&EXT4_I(rec_inode)->i_data_sem);
 		  ret = ext4_meta_ext_remove_space(rec_inode, rec_map.m_lblk,
 						   rec_map.m_lblk + rec_map.m_len - 1,
 						   handle);
@@ -1127,7 +1128,6 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 			   __func__, ret);
 		    BUG();
 		  }
-		  up_write(&EXT4_I(rec_inode)->i_data_sem);
 
 		  ext4_es_remove_extent(rec_inode, rec_cur_lblk,
 					rec_map.m_len);
@@ -1135,6 +1135,7 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 		  rec_hole_size += rec_map.m_len;
 		  
 		  if (rec_hole_size < map.m_len) {
+		    up_write((&EXT4_I(rec_inode)->i_data_sem));
 		    rec_map.m_lblk = rec_cur_lblk + rec_hole_size;
 		    rec_map.m_len = map.m_len - rec_hole_size;
 		    rec_map_ret = ext4_map_blocks(NULL, rec_inode, &rec_map, 0);

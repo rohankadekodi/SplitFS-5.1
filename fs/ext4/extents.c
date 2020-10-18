@@ -507,21 +507,28 @@ __read_extent_tree_block(const char *function, unsigned int line,
 	int				err;
 
 	bh = sb_getblk_gfp(inode->i_sb, pblk, __GFP_MOVABLE | GFP_NOFS);
-	if (unlikely(!bh))
+	if (unlikely(!bh)) {
+	  printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
 		return ERR_PTR(-ENOMEM);
+	}
 
 	if (!bh_uptodate_or_lock(bh)) {
 		trace_ext4_ext_load_extent(inode, pblk, _RET_IP_);
 		err = bh_submit_read(bh);
-		if (err < 0)
+		if (err < 0) {
+		  printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
 			goto errout;
+		}
 	}
-	if (buffer_verified(bh) && !(flags & EXT4_EX_FORCE_CACHE))
+	if (buffer_verified(bh) && !(flags & EXT4_EX_FORCE_CACHE)) {
 		return bh;
+	}
 	err = __ext4_ext_check(function, line, inode,
 			       ext_block_hdr(bh), depth, pblk);
-	if (err)
+	if (err) {
+	  printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
 		goto errout;
+	}
 	set_buffer_verified(bh);
 	/*
 	 * If this is a leaf block, cache all of its entries
@@ -552,6 +559,7 @@ __read_extent_tree_block(const char *function, unsigned int line,
 	return bh;
 errout:
 	put_bh(bh);
+	printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
 	return ERR_PTR(err);
 
 }
@@ -873,6 +881,7 @@ ext4_find_extent(struct inode *inode, ext4_lblk_t block,
 		EXT4_ERROR_INODE(inode, "inode has invalid extent depth: %d",
 				 depth);
 		ret = -EFSCORRUPTED;
+		printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
 		goto err;
 	}
 
@@ -887,8 +896,10 @@ ext4_find_extent(struct inode *inode, ext4_lblk_t block,
 		/* account possible depth increase */
 		path = kcalloc(depth + 2, sizeof(struct ext4_ext_path),
 				GFP_NOFS);
-		if (unlikely(!path))
+		if (unlikely(!path)) {
+		  printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
 			return ERR_PTR(-ENOMEM);
+		}
 		path[0].p_maxdepth = depth + 1;
 	}
 	path[0].p_hdr = eh;
@@ -908,6 +919,7 @@ ext4_find_extent(struct inode *inode, ext4_lblk_t block,
 		bh = read_extent_tree_block(inode, path[ppos].p_block, --i,
 					    flags);
 		if (IS_ERR(bh)) {
+		  printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
 			ret = PTR_ERR(bh);
 			goto err;
 		}
@@ -937,6 +949,8 @@ err:
 	kfree(path);
 	if (orig_path)
 		*orig_path = NULL;
+
+	printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
 	return ERR_PTR(ret);
 }
 
@@ -1370,8 +1384,10 @@ repeat:
 		/* if we found index with free entry, then use that
 		 * entry: create all needed subtree and add new leaf */
 		err = ext4_ext_split(handle, inode, mb_flags, path, newext, i);
-		if (err)
-			goto out;
+		if (err) {
+		  printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
+		  goto out;
+		}
 
 		/* refill path */
 		path = ext4_find_extent(inode,
@@ -1382,14 +1398,17 @@ repeat:
 	} else {
 		/* tree is full, time to grow in depth */
 		err = ext4_ext_grow_indepth(handle, inode, mb_flags);
-		if (err)
+		if (err) {
+		  printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
 			goto out;
+		}
 
 		/* refill path */
 		path = ext4_find_extent(inode,
 				   (ext4_lblk_t)le32_to_cpu(newext->ee_block),
 				    ppath, gb_flags);
 		if (IS_ERR(path)) {
+		  printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
 			err = PTR_ERR(path);
 			goto out;
 		}
@@ -1406,6 +1425,9 @@ repeat:
 	}
 
 out:
+	if (err) {
+	  printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
+	}
 	return err;
 }
 
@@ -1945,6 +1967,7 @@ int ext4_ext_insert_extent(handle_t *handle, struct inode *inode,
 		mb_flags |= EXT4_MB_DELALLOC_RESERVED;
 	if (unlikely(ext4_ext_get_actual_len(newext) == 0)) {
 		EXT4_ERROR_INODE(inode, "ext4_ext_get_actual_len(newext) == 0");
+		printk(KERN_INFO "%s: newext len = 0\n", __func__);
 		return -EFSCORRUPTED;
 	}
 	depth = ext_depth(inode);
@@ -1952,6 +1975,7 @@ int ext4_ext_insert_extent(handle_t *handle, struct inode *inode,
 	eh = path[depth].p_hdr;
 	if (unlikely(path[depth].p_hdr == NULL)) {
 		EXT4_ERROR_INODE(inode, "path[%d].p_hdr == NULL", depth);
+		printk(KERN_INFO "%s: path hdr = NULL\n", __func__);
 		return -EFSCORRUPTED;
 	}
 
@@ -1989,8 +2013,10 @@ int ext4_ext_insert_extent(handle_t *handle, struct inode *inode,
 				  ext4_ext_pblock(ex));
 			err = ext4_ext_get_access(handle, inode,
 						  path + depth);
-			if (err)
+			if (err) {
+			  printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
 				return err;
+			}
 			unwritten = ext4_ext_is_unwritten(ex);
 			ex->ee_len = cpu_to_le16(ext4_ext_get_actual_len(ex)
 					+ ext4_ext_get_actual_len(newext));
@@ -2015,8 +2041,10 @@ prepend:
 				  ext4_ext_pblock(ex));
 			err = ext4_ext_get_access(handle, inode,
 						  path + depth);
-			if (err)
+			if (err) {
+			  printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
 				return err;
+			}
 
 			unwritten = ext4_ext_is_unwritten(ex);
 			ex->ee_block = newext->ee_block;
@@ -2045,8 +2073,10 @@ prepend:
 		ext_debug("next leaf block - %u\n", next);
 		BUG_ON(npath != NULL);
 		npath = ext4_find_extent(inode, next, NULL, 0);
-		if (IS_ERR(npath))
+		if (IS_ERR(npath)) {
+		  printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
 			return PTR_ERR(npath);
+		}
 		BUG_ON(npath->p_depth != path->p_depth);
 		eh = npath[depth].p_hdr;
 		if (le16_to_cpu(eh->eh_entries) < le16_to_cpu(eh->eh_max)) {
@@ -2067,8 +2097,10 @@ prepend:
 		mb_flags |= EXT4_MB_USE_RESERVED;
 	err = ext4_ext_create_new_leaf(handle, inode, mb_flags, gb_flags,
 				       ppath, newext);
-	if (err)
+	if (err) {
+	  printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
 		goto cleanup;
+	}
 	depth = ext_depth(inode);
 	eh = path[depth].p_hdr;
 
@@ -2076,8 +2108,10 @@ has_space:
 	nearex = path[depth].p_ext;
 
 	err = ext4_ext_get_access(handle, inode, path + depth);
-	if (err)
+	if (err) {
+	  printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
 		goto cleanup;
+	}
 
 	if (!nearex) {
 		/* there is no extent in this leaf, create first one */
@@ -2138,14 +2172,22 @@ merge:
 
 	/* time to correct all indexes above */
 	err = ext4_ext_correct_indexes(handle, inode, path);
-	if (err)
+	if (err) {
+	  printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
 		goto cleanup;
+	}
 
 	err = ext4_ext_dirty(handle, inode, path + path->p_depth);
+	if (err) {
+	  printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
+	}
 
 cleanup:
 	ext4_ext_drop_refs(npath);
 	kfree(npath);
+	if (err) {
+	  printk(KERN_INFO "%s: %d\n", __func__, __LINE__);
+	}
 	return err;
 }
 

@@ -1055,6 +1055,7 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 	ext4_lblk_t r_start, r_end;
 	struct ext4_extent newex, *ex;
 	size_t newsize;
+	size_t rec_hole_size = 0;
 
 	/* Protect rec and donor inodes against a truncate */
 	lock_two_nondirectories(rec_inode, donor_inode);
@@ -1092,9 +1093,6 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 		
 		//donor_pextents++;
 		//cur_lblk += map.m_len;
-		path = ext4_find_extent(rec_inode, rec_cur_lblk, NULL, 0);
-		if (!path)
-			continue;
 		memset(&newex, 0, sizeof(newex));
 		newex.ee_block = cpu_to_le32(rec_cur_lblk);
 		ext4_ext_store_pblock(&newex, map.m_pblk);
@@ -1118,23 +1116,43 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 		if (IS_ERR(handle))
 			BUG();
 
-		down_write(&EXT4_I(rec_inode)->i_data_sem);
-
+	remove_rec_space:
 		if (rec_map_ret > 0) {
-		  if (ext4_meta_ext_remove_space(rec_inode, rec_cur_lblk,
-						 rec_cur_lblk + map.m_len - 1,
-						 handle))
+		  down_write(&EXT4_I(rec_inode)->i_data_sem);
+		  ret = ext4_meta_ext_remove_space(rec_inode, rec_map.m_lblk,
+						   rec_map.m_lblk + rec_map.m_len - 1,
+						   handle);
+		  if (ret) {
+		    printk(KERN_INFO "%s: ext4_meta_ext_remove_space err = %d\n",
+			   __func__, ret);
 		    BUG();
+		  }
+		  up_write(&EXT4_I(rec_inode)->i_data_sem);
 
+		  ext4_es_remove_extent(rec_inode, rec_cur_lblk,
+					rec_map.m_len);
+
+		  rec_hole_size += rec_map.m_len;
+		  
+		  if (rec_hole_size < map.m_len) {
+		    rec_map.m_lblk = rec_cur_lblk + rec_hole_size;
+		    rec_map.m_len = map.m_len - rec_hole_size;
+		    rec_map_ret = ext4_map_blocks(NULL, rec_inode, &rec_map, 0);
+		    goto remove_rec_space;
+		  }		  
 		}
+
+		path = ext4_find_extent(rec_inode, rec_cur_lblk, NULL, 0);
+		if (!path)
+			continue;
 
 		ret = ext4_ext_insert_extent(handle, rec_inode,
 					     &path, &newex, 0);
 
 		up_write((&EXT4_I(rec_inode)->i_data_sem));
+		/*
 		down_write(&EXT4_I(donor_inode)->i_data_sem);
 		
-		/* Punch hole in donor_inode */
 		if (ext4_fallocate_for_dr(handle, file2,
 					  FALLOC_FL_PUNCH_HOLE,
 					  cur_lblk << blkbits,
@@ -1142,6 +1160,7 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 			BUG();
 
 		up_write(&EXT4_I(donor_inode)->i_data_sem);
+		*/
 
 		ext4_es_insert_extent(rec_inode, rec_cur_lblk,
 				      map.m_len, map.m_pblk,

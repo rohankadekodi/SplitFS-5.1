@@ -6032,6 +6032,11 @@ int ext4_chunk_trans_blocks(struct inode *inode, int nrblocks)
 	return ext4_meta_trans_blocks(inode, nrblocks, 1);
 }
 
+int ext4_multi_chunk_trans_blocks(struct inode *inode, int nrblocks, int pextents)
+{
+	return ext4_meta_trans_blocks(inode, nrblocks, pextents);
+}
+
 /*
  * The caller must have previously called ext4_reserve_inode_write().
  * Give this, we know that the caller already has write access to iloc->bh.

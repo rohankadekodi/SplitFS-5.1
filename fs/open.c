@@ -346,7 +346,7 @@ long vfs_dynamic_remap(struct file *file1, struct file *file2,
 	long ret_remap = 0;
 	size_t len = 0, max_page_dirty = 0;
 	unsigned long end_offset = 0, start_offset = 0;
-
+	
 	LIST_HEAD(uf);
 
 	if (offset1 < 0 || offset2 < 0 || count <= 0)

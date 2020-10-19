@@ -1127,6 +1127,9 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 		ssize_t map_len;
 		pgoff_t pgoff;
 		void *kaddr;
+		int cpuid;
+
+		cpuid = smp_processor_id() % num_online_cpus();
 
 		if (fatal_signal_pending(current)) {
 			ret = -EINTR;
@@ -1155,12 +1158,28 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 		 * validated via access_ok() in either vfs_read() or
 		 * vfs_write(), depending on which operation we are doing.
 		 */
-		if (iov_iter_rw(iter) == WRITE)
+		if (iov_iter_rw(iter) == WRITE) {
 			xfer = dax_copy_from_iter(dax_dev, pgoff, kaddr,
 					map_len, iter);
-		else
+		}
+		else {
 			xfer = dax_copy_to_iter(dax_dev, pgoff, kaddr,
 					map_len, iter);
+		}
+
+		if (kaddr >= 0xffff99d634400000) {
+		  if (cpuid < 24 || (cpuid >= 48 && cpuid < 72)) {
+		    atomic64_add(xfer, &(inode->i_sb->remote_data));
+		  } else {
+		    atomic64_add(xfer, &(inode->i_sb->local_data));
+		  }
+		} else {
+		  if (cpuid >= 72 || (cpuid >= 24 && cpuid < 48)) {
+		    atomic64_add(xfer, &(inode->i_sb->remote_data));
+		  } else {
+		    atomic64_add(xfer, &(inode->i_sb->local_data));
+		  }
+		}
 
 		pos += xfer;
 		length -= xfer;

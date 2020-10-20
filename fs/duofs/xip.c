@@ -39,7 +39,7 @@ do_xip_mapping_read(struct address_space *mapping,
 	unsigned long start_block = start_pos >> PAGE_SHIFT;
 	unsigned long end_block = end_pos >> PAGE_SHIFT;
 	unsigned long num_blocks = end_block - start_block + 1;
-	timing_t find_blocks_time;
+	timing_t read_find_blocks_time;
 
 	pos = *ppos;
 	index = pos >> PAGE_SHIFT;
@@ -57,10 +57,10 @@ do_xip_mapping_read(struct address_space *mapping,
 		int zero = 0;
 		int blocks_found;
 
-		PMFS_START_TIMING(find_blocks_t, find_blocks_time);
+		PMFS_START_TIMING(read_find_blocks_t, read_find_blocks_time);
 		blocks_found = pmfs_get_xip_mem(mapping, index, num_blocks, 0,
 						&xip_mem, &xip_pfn);
-		PMFS_END_TIMING(find_blocks_t, find_blocks_time);
+		PMFS_END_TIMING(read_find_blocks_t, read_find_blocks_time);
 
 		if (unlikely(blocks_found <= 0)) {
 			if (blocks_found == -ENODATA || blocks_found == 0) {
@@ -205,6 +205,7 @@ __pmfs_xip_file_write(struct address_space *mapping, const char __user *buf,
 	loff_t end_pos = start_pos + count - 1;
 	unsigned long start_block = start_pos >> sb->s_blocksize_bits;
 	unsigned long end_block = end_pos >> sb->s_blocksize_bits;
+	timing_t write_find_blocks_time;
 
 	PMFS_START_TIMING(internal_write_t, write_time);
 	pi = pmfs_get_inode(sb, inode->i_ino);
@@ -220,9 +221,11 @@ __pmfs_xip_file_write(struct address_space *mapping, const char __user *buf,
 		index = pos >> sb->s_blocksize_bits;
 		num_blocks = end_block - index + 1;
 
+		PMFS_START_TIMING(write_find_block_t, write_find_blocks_time);
 		blocks_found = pmfs_get_xip_mem(mapping, index,
 						num_blocks, 1,
 						&xmem, &xpfn);
+		PMFS_END_TIMING(write_find_block_t, write_find_blocks_time);
 		if (blocks_found <= 0) {
 			break;
 		}
@@ -657,6 +660,7 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	bool over_sblk = false, over_eblk = false;
 	timing_t allocate_blocks_time;
+	timing_t write_new_trans_time, write_commit_trans_time;
 
 	PMFS_START_TIMING(xip_write_t, xip_write_time);
 
@@ -724,12 +728,14 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	if (max_logentries > MAX_METABLOCK_LENTRIES)
 		max_logentries = MAX_METABLOCK_LENTRIES;
 
+	PMFS_START_TIMING(write_new_trans_t, write_new_trans_time);
 	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES + max_logentries, pmfs_get_cpuid(sb));
 	if (IS_ERR(trans)) {
 		ret = PTR_ERR(trans);
 		goto out;
 	}
 	pmfs_add_logentry(sb, trans, pi, MAX_DATA_PER_LENTRY, LE_DATA);
+	PMFS_END_TIMING(write_new_trans_t, write_new_trans_time);
 
 	ret = file_remove_privs(filp);
 	if (ret) {
@@ -795,7 +801,9 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 				 " pos %llx start_blk %lx num_blocks %lx\n",
 				 written, count, pos, start_blk, num_blocks);
 
+	PMFS_START_TIMING(write_commit_trans_t, write_commit_trans_time);
 	pmfs_commit_transaction(sb, trans);
+	PMFS_END_TIMING(write_commit_trans_t, write_commit_trans_time);
 
 	if (free_blk_list != NULL && num_free_blks != 0) {
 		truncate_strong_guarantees(sb, free_blk_list, num_free_blks, pi->i_blk_type);

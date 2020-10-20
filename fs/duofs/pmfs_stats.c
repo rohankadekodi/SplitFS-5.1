@@ -4,11 +4,17 @@
 const char *Timingstring[TIMING_NUM] = 
 {
 	"create",
+	"new_inode",
+	"add_nondir",
 	"unlink",
+	"evict_inode",
+	"remove_entry",
 	"readdir",
 	"xip_read",
-	"xip_write",
+	"find_blocks",
+	"xip_write",	
 	"xip_write_fast",
+	"allocate_blocks",
 	"internal_write",
 	"memcpy_read",
 	"memcpy_write",
@@ -19,7 +25,6 @@ const char *Timingstring[TIMING_NUM] =
 	"mmap_fault",
 	"fsync",
 	"free_tree",
-	"evict_inode",
 	"recovery",
 };
 

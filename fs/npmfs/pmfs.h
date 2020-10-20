@@ -106,74 +106,19 @@ extern unsigned int pmfs_dbgmask;
 extern unsigned int blk_type_to_shift[PMFS_BLOCK_TYPE_MAX];
 extern unsigned int blk_type_to_size[PMFS_BLOCK_TYPE_MAX];
 
-/* ======================= Timing ========================= */
-
-/*
-enum rohan_timing_category {
-	in_place_write_t,
-	memcpy_to_pmem_t,
-	before_memcpy_t,
-	after_memcpy_t,
-	update_write_entry_t,
-	update_log_t,
-	transaction_update_log_entry_t,
-	append_file_write_entry_t,
-	inplace_file_write_entry_t,
-	ROHAN_TIMING_NUM,
-};
-
-static u64 RohanTimers[ROHAN_TIMING_NUM];
-
-static const char *rohan_print[ROHAN_TIMING_NUM] =
-	{
-		"in_place_write",
-		"memcpy_to_pmem",
-		"before_memcpy",
-		"after_memcpy",
-		"update_write_entry",
-		"update_log",
-		"transaction_update_log_entry",
-		"append_file_write_entry",
-		"inplace_file_write_entry",
-	};
-
-#define START_TIMING(name, start)               \
-	{ getrawmonotonic(&start); }
-
-#define END_TIMING(name, start)                                         \
-	{                                                               \
-		timing_t end;                                           \
-		getrawmonotonic(&end);                                  \
-		RohanTimers[name] +=                                    \
-			(end.tv_sec - start.tv_sec) * 1000000000 +	\
-			(end.tv_nsec - start.tv_nsec);			\
-	}
-
-#define PRINT_TIMING()                                                  \
-	{                                                               \
-		int i;                                                  \
-		printk(KERN_INFO "------------------\n");               \
-		for(i = 0; i < ROHAN_TIMING_NUM; i++) {                 \
-			printk(KERN_INFO "%s: %llu nanoseconds\n", rohan_print[i], RohanTimers[i]); \
-		}                                                       \
-	}
-
-#define INIT_TIMING()                                           \
-	{                                                       \
-		int i;                                          \
-		for (i = 0; i < ROHAN_TIMING_NUM; i++) {        \
-			RohanTimers[i] = 0;                     \
-		}                                               \
-	}
-
-*/
 enum timing_category {
 	create_t,
+	new_inode_t,
+	add_nondir_t,	
 	unlink_t,
+	evict_inode_t,
+	remove_entry_t,
 	readdir_t,
 	xip_read_t,
+	find_blocks_t,
 	xip_write_t,
 	xip_write_fast_t,
+	allocate_blocks_t,
 	internal_write_t,
 	memcpy_r_t,
 	memcpy_w_t,
@@ -184,7 +129,6 @@ enum timing_category {
 	mmap_fault_t,
 	fsync_t,
 	free_tree_t,
-	evict_inode_t,
 	recovery_t,
 	TIMING_NUM,
 };

@@ -36,7 +36,7 @@
 #include "pmfs.h"
 #include "inode.h"
 
-int measure_timing = 0;
+int measure_timing = 1;
 int support_clwb = 0;
 int support_pcommit = 0;
 

@@ -39,6 +39,7 @@ do_xip_mapping_read(struct address_space *mapping,
 	unsigned long start_block = start_pos >> PAGE_SHIFT;
 	unsigned long end_block = end_pos >> PAGE_SHIFT;
 	unsigned long num_blocks = end_block - start_block + 1;
+	timing_t find_blocks_time;
 
 	pos = *ppos;
 	index = pos >> PAGE_SHIFT;
@@ -56,8 +57,10 @@ do_xip_mapping_read(struct address_space *mapping,
 		int zero = 0;
 		int blocks_found;
 
+		PMFS_START_TIMING(find_blocks_t, find_blocks_time);
 		blocks_found = pmfs_get_xip_mem(mapping, index, num_blocks, 0,
 						&xip_mem, &xip_pfn);
+		PMFS_END_TIMING(find_blocks_t, find_blocks_time);
 
 		if (unlikely(blocks_found <= 0)) {
 			if (blocks_found == -ENODATA || blocks_found == 0) {
@@ -653,6 +656,7 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	int cpu = pmfs_get_cpuid(sb);
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	bool over_sblk = false, over_eblk = false;
+	timing_t allocate_blocks_time;
 
 	PMFS_START_TIMING(xip_write_t, xip_write_time);
 
@@ -765,9 +769,11 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	}
 
 	/* don't zero-out the allocated blocks */
+	PMFS_START_TIMING(allocate_blocks_t, allocate_blocks_time);
 	pmfs_alloc_blocks(trans, inode, start_blk, num_blocks, false,
 			  ANY_CPU, 1, free_blk_list, &num_free_blks,
 			  NULL, NULL, NULL);
+	PMFS_END_TIMING(allocate_blocks_t, allocate_blocks_time);
 
 	/* now zero out the edge blocks which will be partially written */
 	pmfs_clear_edge_blk(sb, pi, new_sblk, start_blk, offset, false);

@@ -191,19 +191,10 @@ int pmfs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 	struct inode *inode = mapping->host;
 	loff_t isize;
 	timing_t fsync_time;
-
-	/*
-	printk(KERN_INFO "%s: START. inode = %lu, start = %lld, end = %lld, datasync = %d\n",
-	       __func__, inode->i_ino, start, end, datasync);
-	*/
 	
 	PMFS_START_TIMING(fsync_t, fsync_time);
 	/* if the file is not mmap'ed, there is no need to do clflushes */
 	if (mapping_mapped(mapping) == 0) {
-		/*
-		printk(KERN_INFO "%s: mapping is not mapped. Goto persist\n",
-		       __func__);
-		*/
 		goto persist;
 	}
 

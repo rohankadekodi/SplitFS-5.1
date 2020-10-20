@@ -111,11 +111,17 @@ extern unsigned int blk_type_to_size[PMFS_BLOCK_TYPE_MAX];
 /* ======================= Timing ========================= */
 enum timing_category {
 	create_t,
+	new_inode_t,
+	add_nondir_t,
 	unlink_t,
+	evict_inode_t,
+	remove_entry_t,
 	readdir_t,
 	xip_read_t,
+	find_blocks_t,
 	xip_write_t,
 	xip_write_fast_t,
+	allocate_blocks_t,
 	internal_write_t,
 	memcpy_r_t,
 	memcpy_w_t,
@@ -126,7 +132,6 @@ enum timing_category {
 	mmap_fault_t,
 	fsync_t,
 	free_tree_t,
-	evict_inode_t,
 	recovery_t,
 	TIMING_NUM,
 };

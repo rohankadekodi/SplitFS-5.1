@@ -33,7 +33,7 @@ do_xip_mapping_read(struct address_space *mapping,
 	unsigned long offset;
 	loff_t isize, pos;
 	size_t copied = 0, error = 0;
-	timing_t memcpy_time;
+	timing_t memcpy_time, find_blocks_time;
 	int cpuid = smp_processor_id() % 96;
 
 	pos = *ppos;
@@ -65,8 +65,10 @@ do_xip_mapping_read(struct address_space *mapping,
 		if (nr > len - copied)
 			nr = len - copied;
 
+		PMFS_START_TIMING(find_blocks_t, find_blocks_time);
 		error = pmfs_get_xip_mem(mapping, index, 0,
 					&xip_mem, &xip_pfn);
+		PMFS_END_TIMING(find_blocks_t, find_blocks_time);
 		if (unlikely(error)) {
 			if (error == -ENODATA) {
 				/* sparse */
@@ -390,7 +392,7 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	size_t count, offset, eblk_offset, ret;
 	unsigned long start_blk, end_blk, num_blocks, max_logentries;
 	bool same_block;
-	timing_t xip_write_time, xip_write_fast_time;
+	timing_t xip_write_time, xip_write_fast_time, alloc_blocks_time;
 
 	PMFS_START_TIMING(xip_write_t, xip_write_time);
 
@@ -461,7 +463,9 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 		new_eblk = true;
 
 	/* don't zero-out the allocated blocks */
+	PMFS_START_TIMING(allocate_blocks_t, alloc_blocks_time);
 	pmfs_alloc_blocks(trans, inode, start_blk, num_blocks, false);
+	PMFS_END_TIMING(allocate_blocks_t, alloc_blocks_time);
 
 	/* now zero out the edge blocks which will be partially written */
 	pmfs_clear_edge_blk(sb, pi, new_sblk, start_blk, offset, false);

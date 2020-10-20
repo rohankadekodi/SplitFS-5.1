@@ -146,7 +146,7 @@ static int pmfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 	int err = PTR_ERR(inode);
 	struct super_block *sb = dir->i_sb;
 	pmfs_transaction_t *trans;
-	timing_t create_time;
+	timing_t create_time, new_inode_time, add_nondir_time;
 
 	PMFS_START_TIMING(create_t, create_time);
 	/* two log entries for new inode, 1 lentry for dir inode, 1 for dir
@@ -159,7 +159,9 @@ static int pmfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 		goto out;
 	}
 
+	PMFS_START_TIMING(new_inode_t, new_inode_time);
 	inode = pmfs_new_inode(trans, dir, mode, &dentry->d_name);
+	PMFS_END_TIMING(new_inode_t, new_inode_time);
 	if (IS_ERR(inode))
 		goto out_err;
 	pmfs_dbg_verbose("%s: %s, ino %lu\n", __func__,
@@ -167,7 +169,9 @@ static int pmfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 	inode->i_op = &pmfs_file_inode_operations;
 	inode->i_mapping->a_ops = &pmfs_aops_xip;
 	inode->i_fop = &pmfs_xip_file_operations;
+	PMFS_START_TIMING(add_nondir_t, add_nondir_time);
 	err = pmfs_add_nondir(trans, dir, dentry, inode);
+	PMFS_END_TIMING(add_nondir_t, add_nondir_time);
 	if (err)
 		goto out_err;
 	pmfs_commit_transaction(sb, trans);
@@ -329,7 +333,7 @@ static int pmfs_unlink(struct inode *dir, struct dentry *dentry)
 	pmfs_transaction_t *trans;
 	struct super_block *sb = inode->i_sb;
 	struct pmfs_inode *pi = pmfs_get_inode(sb, inode->i_ino);
-	timing_t unlink_time;
+	timing_t unlink_time, remove_entry_time;
 
 	PMFS_START_TIMING(unlink_t, unlink_time);
 
@@ -343,7 +347,10 @@ static int pmfs_unlink(struct inode *dir, struct dentry *dentry)
 
 	pmfs_dbg_verbose("%s: %s, ino %lu\n", __func__,
 				dentry->d_name.name, inode->i_ino);
+
+	PMFS_START_TIMING(remove_entry_t, remove_entry_time);
 	retval = pmfs_remove_entry(trans, dentry, inode);
+	PMFS_END_TIMING(remove_entry_t, remove_entry_time);
 	if (retval)
 		goto end_unlink;
 

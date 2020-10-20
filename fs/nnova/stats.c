@@ -166,6 +166,10 @@ const char *Timingstring[TIMING_NUM] = {
 	"write_get_blocks",
 	"write_finish_incomplete",
 	"write_handle_head_tail",
+	"write_check_inode",
+	"write_check_vma",
+	"write_protect_data",
+	"write_reassign_file_tree",
 
 	/* Read operation */
 	"=================== Read operation ===================",

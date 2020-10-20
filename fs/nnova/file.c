@@ -658,6 +658,10 @@ static ssize_t do_nova_cow_file_write(struct file *filp,
 	INIT_TIMING(write_get_blocks_time);
 	INIT_TIMING(write_finish_incomplete_time);
 	INIT_TIMING(write_handle_head_tail_time);
+	INIT_TIMING(write_check_inode_time);
+	INIT_TIMING(write_check_vma_time);
+	INIT_TIMING(write_protect_data_time);
+	INIT_TIMING(write_reassign_file_tree_time);
 
 
 	if (len == 0)
@@ -681,17 +685,20 @@ static ssize_t do_nova_cow_file_write(struct file *filp,
 	/* nova_inode tail pointer will be updated and we make sure all other
 	 * inode fields are good before checksumming the whole structure
 	 */
+	NOVA_START_TIMING(write_check_inode_t, write_check_inode_time);
 	if (nova_check_inode_integrity(sb, sih->ino, sih->pi_addr,
 			sih->alter_pi_addr, &inode_copy, 0) < 0) {
 		ret = -EIO;
 		goto out;
 	}
+	NOVA_END_TIMING(write_check_inode_t, write_check_inode_time);
 
 	offset = pos & (sb->s_blocksize - 1);
 	num_blocks = ((count + offset - 1) >> sb->s_blocksize_bits) + 1;
 	total_blocks = num_blocks;
 	start_blk = pos >> sb->s_blocksize_bits;
 
+	NOVA_START_TIMING(write_check_vma_t, write_check_vma_time);
 	if (nova_check_overlap_vmas(sb, sih, start_blk, num_blocks)) {
 		nova_dbgv("COW write overlaps with vma: inode %lu, pgoff %lu, %lu blocks\n",
 				inode->i_ino, start_blk, num_blocks);
@@ -700,6 +707,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp,
 		ret = -EACCES;
 		goto out;
 	}
+	NOVA_END_TIMING(write_check_vma_t, write_check_vma_time);
 
 	/* offset in the actual block size block */
 
@@ -764,12 +772,14 @@ static ssize_t do_nova_cow_file_write(struct file *filp,
 		nova_memlock_range(sb, kmem + offset, bytes);
 		NOVA_END_TIMING(memcpy_w_nvmm_t, memcpy_time);
 
+		NOVA_START_TIMING(write_protect_data_t, write_protect_data_time);
 		if (data_csum > 0 || data_parity > 0) {
 			ret = nova_protect_file_data(sb, inode, pos, bytes,
 							buf, blocknr, false);
 			if (ret)
 				goto out;
 		}
+		NOVA_END_TIMING(write_protect_data_t, write_protect_data_time);
 
 		if (pos + copied > inode->i_size)
 			file_size = cpu_to_le64(pos + copied);
@@ -819,8 +829,10 @@ static ssize_t do_nova_cow_file_write(struct file *filp,
 	nova_update_inode(sb, inode, pi, &update, 1);
 	nova_memlock_inode(sb, pi);
 
+	NOVA_START_TIMING(write_reassign_file_tree_t, write_reassign_file_tree_time);
 	/* Free the overlap blocks after the write is committed */
 	ret = nova_reassign_file_tree(sb, sih, begin_tail);
+	NOVA_END_TIMING(write_reassign_file_tree_t, write_reassign_file_tree_time);
 	if (ret)
 		goto out;
 

@@ -169,6 +169,10 @@ enum timing_category {
 	write_get_blocks_t,
 	write_finish_incomplete_t,
 	write_handle_head_tail_t,
+	write_check_inode_t,
+	write_check_vma_t,
+	write_protect_data_t,
+	write_reassign_file_tree_t,
 
 	/* Read operation */
 	read_title_t,

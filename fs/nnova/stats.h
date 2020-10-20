@@ -51,9 +51,6 @@ enum timing_category {
 
 	/* I/O operations */
 	io_title_t,
-	dax_read_t,
-	do_cow_write_t,
-	cow_write_t,
 	inplace_write_t,
 	copy_to_nvmm_t,
 	dax_get_block_t,
@@ -163,6 +160,22 @@ enum timing_category {
 	append_snapshot_file_t,
 	append_snapshot_inode_t,
 
+	/* Write operation */
+	write_title_t,
+	do_cow_write_t,
+	cow_write_t,
+	write_alloc_blocks_t,
+	write_append_entry_t,
+	write_get_blocks_t,
+	write_finish_incomplete_t,
+	write_handle_head_tail_t,
+
+	/* Read operation */
+	read_title_t,
+	dax_read_t,
+	read_get_entry_t,
+	read_get_block_t,
+	
 	/* Sentinel */
 	TIMING_NUM,
 };

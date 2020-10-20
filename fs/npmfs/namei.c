@@ -437,7 +437,7 @@ static int pmfs_unlink(struct inode *dir, struct dentry *dentry)
 	PMFS_START_TIMING(remove_entry_t, remove_entry_time);
 	retval = pmfs_remove_entry(trans, dentry, inode);
 	if (retval)
-		goto end_unlink
+	  goto end_unlink;
 	PMFS_END_TIMING(remove_entry_t, remove_entry_time);
 
 	if (inode->i_nlink == 1)

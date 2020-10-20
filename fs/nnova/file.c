@@ -468,6 +468,8 @@ do_dax_mapping_read(struct file *filp, char __user *buf,
 	loff_t isize, pos;
 	size_t copied = 0, error = 0;
 	INIT_TIMING(memcpy_time);
+	INIT_TIMING(read_get_entry_time);
+	INIT_TIMING(read_get_block_time);
 
 	pos = *ppos;
 	index = pos >> PAGE_SHIFT;
@@ -509,7 +511,9 @@ do_dax_mapping_read(struct file *filp, char __user *buf,
 				goto out;
 		}
 
+		NOVA_START_TIMING(read_get_entry_t, read_get_entry_time);
 		entry = nova_get_write_entry(sb, sih, index);
+		NOVA_END_TIMING(read_get_entry_t, read_get_entry_time);
 		if (unlikely(entry == NULL)) {
 			nova_dbgv("Required extent not found: pgoff %lu, inode size %lld\n",
 				index, isize);
@@ -538,8 +542,10 @@ do_dax_mapping_read(struct file *filp, char __user *buf,
 			nr = PAGE_SIZE;
 		}
 
+		NOVA_START_TIMING(read_get_block_t, read_get_block_time);
 		nvmm = get_nvmm(sb, sih, entryc, index);
 		dax_mem = nova_get_block(sb, (nvmm << PAGE_SHIFT));
+		NOVA_END_TIMING(read_get_block_t, read_get_block_time);
 
 memcpy:
 		nr = nr - offset;
@@ -641,13 +647,17 @@ static ssize_t do_nova_cow_file_write(struct file *filp,
 	long status = 0;
 	INIT_TIMING(cow_write_time);
 	INIT_TIMING(memcpy_time);
-	INIT_TIMING(
 	unsigned long step = 0;
 	ssize_t ret;
 	u64 begin_tail = 0;
 	int try_inplace = 0;
 	u64 epoch_id;
 	u32 time;
+	INIT_TIMING(write_alloc_blocks_time);
+	INIT_TIMING(write_append_entry_time);
+	INIT_TIMING(write_get_blocks_time);
+	INIT_TIMING(write_finish_incomplete_time);
+	INIT_TIMING(write_handle_head_tail_time);
 
 
 	if (len == 0)
@@ -710,10 +720,12 @@ static ssize_t do_nova_cow_file_write(struct file *filp,
 		offset = pos & (nova_inode_blk_size(sih) - 1);
 		start_blk = pos >> sb->s_blocksize_bits;
 
+		NOVA_START_TIMING(write_alloc_blocks_t, write_alloc_blocks_time);
 		/* don't zero-out the allocated blocks */
 		allocated = nova_new_data_blocks(sb, sih, &blocknr, start_blk,
 				 num_blocks, ALLOC_NO_INIT, ANY_CPU,
 				 ALLOC_FROM_HEAD);
+		NOVA_END_TIMING(write_alloc_blocks_t, write_alloc_blocks_time);
 
 		nova_dbg_verbose("%s: alloc %d blocks @ %lu\n", __func__,
 						allocated, blocknr);
@@ -730,12 +742,16 @@ static ssize_t do_nova_cow_file_write(struct file *filp,
 		if (bytes > count)
 			bytes = count;
 
+		NOVA_START_TIMING(write_get_blocks_t, write_get_blocks_time);
 		kmem = nova_get_block(inode->i_sb,
 			     nova_get_block_off(sb, blocknr, sih->i_blk_type));
+		NOVA_END_TIMING(write_get_blocks_t, write_get_blocks_time);
 
 		if (offset || ((offset + bytes) & (PAGE_SIZE - 1)) != 0)  {
-			ret = nova_handle_head_tail_blocks(sb, inode, pos,
+		  NOVA_START_TIMING(write_handle_head_tail_t, write_handle_head_tail_time);
+		  ret = nova_handle_head_tail_blocks(sb, inode, pos,
 							   bytes, kmem);
+		  NOVA_END_TIMING(write_handle_head_tail_t, write_handle_head_tail_time);
 			if (ret)
 				goto out;
 		}
@@ -760,12 +776,14 @@ static ssize_t do_nova_cow_file_write(struct file *filp,
 		else
 			file_size = cpu_to_le64(inode->i_size);
 
+		NOVA_START_TIMING(write_append_entry_t, write_append_entry_time);
 		nova_init_file_write_entry(sb, sih, &entry_data, epoch_id,
 					start_blk, allocated, blocknr, time,
 					file_size);
 
 		ret = nova_append_file_write_entry(sb, pi, inode,
 					&entry_data, &update);
+		NOVA_END_TIMING(write_append_entry_t, write_append_entry_time);
 		if (ret) {
 			nova_dbg("%s: append inode entry failed\n", __func__);
 			ret = -ENOSPC;
@@ -820,9 +838,11 @@ static ssize_t do_nova_cow_file_write(struct file *filp,
 
 	sih->trans_id++;
 out:
+	NOVA_START_TIMING(write_finish_incomplete_t, write_finish_incomplete_time);
 	if (ret < 0)
 		nova_cleanup_incomplete_write(sb, sih, blocknr, allocated,
 						begin_tail, update.tail);
+	NOVA_END_TIMING(write_finish_incomplete_t, write_finish_incomplete_time);
 
 	NOVA_END_TIMING(do_cow_write_t, cow_write_time);
 	NOVA_STATS_ADD(cow_write_bytes, written);

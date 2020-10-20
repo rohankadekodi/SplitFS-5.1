@@ -48,9 +48,6 @@ const char *Timingstring[TIMING_NUM] = {
 
 	/* I/O operations */
 	"================ I/O operations ================",
-	"dax_read",
-	"do_cow_write",
-	"cow_write",
 	"inplace_write",
 	"copy_to_nvmm",
 	"dax_get_block",
@@ -159,6 +156,22 @@ const char *Timingstring[TIMING_NUM] = {
 	"delete_snapshot",
 	"append_snapshot_filedata",
 	"append_snapshot_inode",
+
+	/* Write operation */
+	"=================== Write operation ===================",
+	"do_cow_write",
+	"cow_write",
+	"write_alloc_blocks",
+	"write_append_entry",
+	"write_get_blocks",
+	"write_finish_incomplete",
+	"write_handle_head_tail",
+
+	/* Read operation */
+	"=================== Read operation ===================",
+	"dax_read",
+	"read_get_entry",
+	"read_get_block",
 };
 
 u64 Timingstats[TIMING_NUM];

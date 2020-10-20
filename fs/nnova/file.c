@@ -641,6 +641,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp,
 	long status = 0;
 	INIT_TIMING(cow_write_time);
 	INIT_TIMING(memcpy_time);
+	INIT_TIMING(
 	unsigned long step = 0;
 	ssize_t ret;
 	u64 begin_tail = 0;

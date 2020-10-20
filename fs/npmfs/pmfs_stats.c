@@ -13,6 +13,8 @@ const char *Timingstring[TIMING_NUM] =
 	"find_blocks",
 	"xip_write",
 	"xip_write_fast",
+	"write_new_trans",
+	"write_commit_trans",
 	"allocate_blocks",
 	"internal_write",
 	"memcpy_read",

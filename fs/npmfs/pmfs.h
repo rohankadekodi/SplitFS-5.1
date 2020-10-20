@@ -118,6 +118,8 @@ enum timing_category {
 	find_blocks_t,
 	xip_write_t,
 	xip_write_fast_t,
+	write_new_trans_t,
+	write_commit_trans_t,
 	allocate_blocks_t,
 	internal_write_t,
 	memcpy_r_t,

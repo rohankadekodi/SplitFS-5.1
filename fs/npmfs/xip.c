@@ -393,6 +393,7 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	unsigned long start_blk, end_blk, num_blocks, max_logentries;
 	bool same_block;
 	timing_t xip_write_time, xip_write_fast_time, alloc_blocks_time;
+	timing_t write_new_trans_time, write_commit_trans_time;
 
 	PMFS_START_TIMING(xip_write_t, xip_write_time);
 
@@ -435,12 +436,14 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 	if (max_logentries > MAX_METABLOCK_LENTRIES)
 		max_logentries = MAX_METABLOCK_LENTRIES;
 
+	PMFS_START_TIMING(write_new_trans_t, write_new_trans_time);
 	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES + max_logentries);
 	if (IS_ERR(trans)) {
 		ret = PTR_ERR(trans);
 		goto out;
 	}
 	pmfs_add_logentry(sb, trans, pi, MAX_DATA_PER_LENTRY, LE_DATA);
+	PMFS_END_TIMING(write_new_trans_t, write_new_trans_time);
 
 	ret = file_remove_privs(filp);
 	if (ret) {
@@ -477,7 +480,9 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 			" pos %llx start_blk %lx num_blocks %lx\n",
 			written, count, pos, start_blk, num_blocks);
 
+	PMFS_START_TIMING(write_commit_trans_t, write_commit_trans_time);
 	pmfs_commit_transaction(sb, trans);
+	PMFS_END_TIMING(write_commit_trans_t, write_commit_trans_time);
 	ret = written;
 out:
 	inode_unlock(inode);

@@ -202,4 +202,42 @@ static inline bool dax_mapping(struct address_space *mapping)
 	return mapping->host && IS_DAX(mapping->host);
 }
 
+
+/* ======================= Timing ========================= */
+enum dax_timing_category {
+
+	/* Namei operations */
+        dax_title_t,
+        memcpy_read_t,
+	memcpy_write_t,
+
+	/* Sentinel */
+	DAX_TIMING_NUM,
+};
+
+extern const char *dax_Timingstring[DAX_TIMING_NUM];
+extern u64 dax_Timingstats[DAX_TIMING_NUM];
+DECLARE_PER_CPU(u64[DAX_TIMING_NUM], dax_Timingstats_percpu);
+extern u64 dax_Countstats[DAX_TIMING_NUM];
+DECLARE_PER_CPU(u64[DAX_TIMING_NUM], dax_Countstats_percpu);
+
+typedef struct timespec dax_timing_t;
+
+#define	INIT_TIMING(X)	dax_timing_t X = {0}
+
+#define DAX_START_TIMING(name, start) \
+	{getrawmonotonic(&start); }
+
+#define DAX_END_TIMING(name, start) \
+  {		INIT_TIMING(end);      \
+                getrawmonotonic(&end);				 \
+		__this_cpu_add(dax_Timingstats_percpu[name], \
+			(end.tv_sec - start.tv_sec) * 1000000000 + \
+			(end.tv_nsec - start.tv_nsec)); \
+		__this_cpu_add(dax_Countstats_percpu[name], 1);	\
+  }
+
+void dax_print_timing_stats(struct super_block *sb);
+void dax_clear_stats(struct super_block *sb);
+
 #endif

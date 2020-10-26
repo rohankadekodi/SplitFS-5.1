@@ -1151,7 +1151,6 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 					     &path, &newex, 0);
 
 		up_write((&EXT4_I(rec_inode)->i_data_sem));
-		/*
 		down_write(&EXT4_I(donor_inode)->i_data_sem);
 		
 		if (ext4_fallocate_for_dr(handle, file2,
@@ -1161,7 +1160,6 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
 			BUG();
 
 		up_write(&EXT4_I(donor_inode)->i_data_sem);
-		*/
 
 		ext4_es_insert_extent(rec_inode, rec_cur_lblk,
 				      map.m_len, map.m_pblk,

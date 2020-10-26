@@ -39,6 +39,11 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/fs_dax.h>
 
+u64 dax_Timingstats[DAX_TIMING_NUM];
+DEFINE_PER_CPU(u64[DAX_TIMING_NUM], dax_Timingstats_percpu);
+u64 dax_Countstats[DAX_TIMING_NUM];
+DEFINE_PER_CPU(u64[DAX_TIMING_NUM], dax_Countstats_percpu);
+
 static inline unsigned int pe_order(enum page_entry_size pe_size)
 {
 	if (pe_size == PE_SIZE_PTE)
@@ -1095,6 +1100,8 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 	ssize_t ret = 0;
 	size_t xfer;
 	int id;
+	INIT_TIMING(memcpy_read_time);
+	INIT_TIMING(memcpy_write_time);
 
 	if (iov_iter_rw(iter) == READ) {
 		end = min(end, i_size_read(inode));
@@ -1159,12 +1166,16 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 		 * vfs_write(), depending on which operation we are doing.
 		 */
 		if (iov_iter_rw(iter) == WRITE) {
+		  DAX_START_TIMING(memcpy_write_t, memcpy_write_time);
 			xfer = dax_copy_from_iter(dax_dev, pgoff, kaddr,
 					map_len, iter);
+		  DAX_END_TIMING(memcpy_write_t, memcpy_write_time);
 		}
 		else {
+		  DAX_START_TIMING(memcpy_read_t, memcpy_read_time);
 			xfer = dax_copy_to_iter(dax_dev, pgoff, kaddr,
 					map_len, iter);
+		  DAX_END_TIMING(memcpy_read_t, memcpy_read_time);
 		}
 
 		if (kaddr >= 0xffff99d634400000) {
@@ -1748,3 +1759,80 @@ vm_fault_t dax_finish_sync_fault(struct vm_fault *vmf,
 	return dax_insert_pfn_mkwrite(vmf, pfn, order);
 }
 EXPORT_SYMBOL_GPL(dax_finish_sync_fault);
+
+const char *dax_Timingstring[DAX_TIMING_NUM] = {
+
+	/* DAX operations */
+	"============= DAX operations =============",
+	"read_memcpy",
+	"write_memcpy",
+};
+
+static void dax_get_timing_stats(void)
+{
+	int i;
+	int cpu;
+
+	for (i = 0; i < DAX_TIMING_NUM; i++) {
+		dax_Timingstats[i] = 0;
+		dax_Countstats[i] = 0;
+		for_each_possible_cpu(cpu) {
+			dax_Timingstats[i] += per_cpu(dax_Timingstats_percpu[i], cpu);
+			dax_Countstats[i] += per_cpu(dax_Countstats_percpu[i], cpu);
+		}
+	}
+}
+
+void dax_print_timing_stats(struct super_block *sb)
+{
+	int i;
+
+	dax_get_timing_stats();
+
+	printk(KERN_INFO "=========== DAX kernel timing stats ============\n");
+	for (i = 0; i < DAX_TIMING_NUM; i++) {
+		/* Title */
+		if (dax_Timingstring[i][0] == '=') {
+		        printk(KERN_INFO "\n%s\n\n", dax_Timingstring[i]);
+			continue;
+		}
+
+		if (dax_Timingstats[i]) {
+			printk(KERN_INFO "%s: count %llu, timing %llu, average %llu\n",
+				dax_Timingstring[i],
+				dax_Countstats[i],
+				dax_Timingstats[i],
+				dax_Countstats[i] ?
+				dax_Timingstats[i] / dax_Countstats[i] : 0);
+		} else {
+		        printk(KERN_INFO "%s: count %llu\n",
+				dax_Timingstring[i],
+				dax_Countstats[i]);
+		}
+	}
+
+	printk(KERN_INFO "\n");
+}
+EXPORT_SYMBOL_GPL(dax_print_timing_stats);
+
+static void dax_clear_timing_stats(void)
+{
+	int i;
+	int cpu;
+
+	for (i = 0; i < DAX_TIMING_NUM; i++) {
+		dax_Countstats[i] = 0;
+		dax_Timingstats[i] = 0;
+		for_each_possible_cpu(cpu) {
+			per_cpu(dax_Timingstats_percpu[i], cpu) = 0;
+			per_cpu(dax_Countstats_percpu[i], cpu) = 0;
+		}
+	}
+}
+
+void dax_clear_stats(struct super_block *sb)
+{
+	dax_clear_timing_stats();
+}
+EXPORT_SYMBOL_GPL(dax_clear_stats);
+

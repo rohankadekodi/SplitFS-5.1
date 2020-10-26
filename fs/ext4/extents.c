@@ -6494,9 +6494,11 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 	BUG_ON(!inode_is_locked(receiver_inode));
 	BUG_ON(!inode_is_locked(donor_inode));
 
+	/*
 	while (handle->h_buffer_credits < 22) {
 		ext4_journal_extend(handle, 22);
 	}
+	*/
 
 	*erp = ext4_es_remove_extent(receiver_inode, rec_lblk, count);
 	if (unlikely(*erp)) {
@@ -6584,9 +6586,11 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 		if (er_blk < rec_lblk) {
 			split = 1;
 
+			/*
 			while (handle->h_buffer_credits < 22) {
 				jbd2_journal_extend(handle, 22);
 			}
+			*/
 
 			*erp = ext4_force_split_extent_at(handle, receiver_inode,
 						&receiver_path, rec_lblk, 0);
@@ -6596,9 +6600,11 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 		if (ed_blk < donor_lblk) {
 			split = 1;
 
+			/*
 			while (handle->h_buffer_credits < 22) {
 				jbd2_journal_extend(handle, 22);
 			}
+			*/
 
 			*erp = ext4_force_split_extent_at(handle, donor_inode,
 						&donor_path,  donor_lblk, 0);
@@ -6622,9 +6628,11 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 		if (len != er_len) {
 			split = 1;
 
+			/*
 			while (handle->h_buffer_credits < 22) {
 				jbd2_journal_extend(handle, 22);
 			}
+			*/
 
 			*erp = ext4_force_split_extent_at(handle, receiver_inode,
 						&receiver_path, rec_lblk + len, 0);
@@ -6636,9 +6644,11 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 		if (len != ed_len) {
 			split = 1;
 
+			/*
 			while (handle->h_buffer_credits < 22) {
 				jbd2_journal_extend(handle, 22);
 			}
+			*/
 
 			*erp = ext4_force_split_extent_at(handle, donor_inode,
 						&donor_path, donor_lblk + len, 0);
@@ -6676,18 +6686,23 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 		*erp = ext4_ext_dirty(handle, donor_inode, donor_path +
 				      donor_path->p_depth);
 		if (unlikely(*erp)) {
-			if (*erp == -ENOSPC || *erp == ENOSPC) {
-				jbd2_journal_extend(handle, 10);
-				goto donor_ext_dirty;
-			} else {
-				printk(KERN_INFO "%s: %d. *erp = %d\n", __func__, __LINE__, *erp);
-				goto finish;
-			}
+
+		  /*
+		  if (*erp == -ENOSPC || *erp == ENOSPC) {
+		    jbd2_journal_extend(handle, 10);
+		    goto donor_ext_dirty;
+		  } else {
+		    printk(KERN_INFO "%s: %d. *erp = %d\n", __func__, __LINE__, *erp);
+		    goto finish;
+		  }
+		  */
+		  goto finish;
 		}
 	rec_ext_dirty:
 		*erp = ext4_ext_dirty(handle, receiver_inode, receiver_path +
 				      receiver_path->p_depth);
 		if (unlikely(*erp)) {
+		  /*
 			if (*erp == -ENOSPC || *erp == ENOSPC) {
 				jbd2_journal_extend(handle, 10);
 				goto rec_ext_dirty;
@@ -6695,6 +6710,8 @@ ext4_meta_swap_extents(handle_t *handle, struct inode *receiver_inode,
 				printk(KERN_INFO "%s: %d. *erp = %d\n", __func__, __LINE__, *erp);
 				goto finish;
 			}
+		  */
+		  goto finish;
 		}
 
 		rec_lblk += len;

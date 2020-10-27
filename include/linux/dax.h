@@ -208,6 +208,12 @@ enum dax_timing_category {
 
 	/* Namei operations */
         dax_title_t,
+	iomap_apply_read_iomap_begin_t,
+	iomap_apply_read_actor_t,
+	iomap_apply_read_iomap_end_t,
+	iomap_apply_write_iomap_begin_t,
+	iomap_apply_write_actor_t,
+	iomap_apply_write_iomap_end_t,
         memcpy_read_t,
 	memcpy_write_t,
 

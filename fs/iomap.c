@@ -50,6 +50,12 @@ iomap_apply(struct inode *inode, loff_t pos, loff_t length, unsigned flags,
 {
 	struct iomap iomap = { 0 };
 	loff_t written = 0, ret;
+	INIT_TIMING(iomap_apply_read_iomap_begin_time);
+	INIT_TIMING(iomap_apply_read_iomap_end_time);
+	INIT_TIMING(iomap_apply_read_actor_time);
+	INIT_TIMING(iomap_apply_write_iomap_begin_time);
+	INIT_TIMING(iomap_apply_write_iomap_end_time);
+	INIT_TIMING(iomap_apply_write_actor_time);
 
 	/*
 	 * Need to map a range from start position for length bytes. This can
@@ -63,7 +69,17 @@ iomap_apply(struct inode *inode, loff_t pos, loff_t length, unsigned flags,
 	 * expose transient stale data. If the reserve fails, we can safely
 	 * back out at this point as there is nothing to undo.
 	 */
+	if (!(flags & IOMAP_WRITE)) {
+	  DAX_START_TIMING(iomap_apply_read_iomap_begin_t, iomap_apply_read_iomap_begin_time);
+	} else {
+	  DAX_START_TIMING(iomap_apply_write_iomap_begin_t, iomap_apply_write_iomap_begin_time);
+	}
 	ret = ops->iomap_begin(inode, pos, length, flags, &iomap);
+	if (!(flags & IOMAP_WRITE)) {
+	  DAX_END_TIMING(iomap_apply_read_iomap_begin_t, iomap_apply_read_iomap_begin_time);
+	} else {
+	  DAX_END_TIMING(iomap_apply_write_iomap_begin_t, iomap_apply_write_iomap_begin_time);
+	}
 	if (ret)
 		return ret;
 	if (WARN_ON(iomap.offset > pos))
@@ -83,16 +99,36 @@ iomap_apply(struct inode *inode, loff_t pos, loff_t length, unsigned flags,
 	 * we can do the copy-in page by page without having to worry about
 	 * failures exposing transient data.
 	 */
+	if (!(flags & IOMAP_WRITE)) {
+	  DAX_START_TIMING(iomap_apply_read_actor_t, iomap_apply_read_actor_time);
+	} else {
+	  DAX_START_TIMING(iomap_apply_write_actor_t, iomap_apply_write_actor_time);
+	}
 	written = actor(inode, pos, length, data, &iomap);
+	if (!(flags & IOMAP_WRITE)) {
+	  DAX_END_TIMING(iomap_apply_read_actor_t, iomap_apply_read_actor_time);
+	} else {
+	  DAX_END_TIMING(iomap_apply_write_actor_t, iomap_apply_write_actor_time);
+	}
 
 	/*
 	 * Now the data has been copied, commit the range we've copied.  This
 	 * should not fail unless the filesystem has had a fatal error.
 	 */
+	if (!(flags & IOMAP_WRITE)) {
+	  DAX_START_TIMING(iomap_apply_read_iomap_end_t, iomap_apply_read_iomap_end_time);
+	} else {
+	  DAX_START_TIMING(iomap_apply_write_iomap_end_t, iomap_apply_write_iomap_end_time);
+	}
 	if (ops->iomap_end) {
 		ret = ops->iomap_end(inode, pos, length,
 				     written > 0 ? written : 0,
 				     flags, &iomap);
+	}
+	if (!(flags & IOMAP_WRITE)) {
+	  DAX_END_TIMING(iomap_apply_read_iomap_end_t, iomap_apply_read_iomap_end_time);
+	} else {
+	  DAX_END_TIMING(iomap_apply_write_iomap_end_t, iomap_apply_write_iomap_end_time);
 	}
 
 	return written ? written : ret;

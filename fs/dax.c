@@ -1764,6 +1764,12 @@ const char *dax_Timingstring[DAX_TIMING_NUM] = {
 
 	/* DAX operations */
 	"============= DAX operations =============",
+	"iomap_apply_read_iomap_begin",
+	"iomap_apply_read_actor",
+	"iomap_apply_read_iomap_end",
+	"iomap_apply_write_iomap_begin",
+	"iomap_apply_write_actor",
+	"iomap_apply_write_iomap_end",
 	"read_memcpy",
 	"write_memcpy",
 };

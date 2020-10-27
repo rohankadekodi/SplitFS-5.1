@@ -1107,6 +1107,7 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 	INIT_TIMING(write_iomap_actor_time);
 	INIT_TIMING(write_iomap_actor_first_time);
 	INIT_TIMING(write_iomap_actor_second_time);
+	INIT_TIMING(while_loop_time);
 
 	if (iov_iter_rw(iter) == WRITE) {
 	  DAX_START_TIMING(write_iomap_actor_t, write_iomap_actor_time);
@@ -1161,10 +1162,17 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 		void *kaddr;
 		int cpuid;
 
+		if (iov_iter_rw(iter) == WRITE) {
+		  DAX_START_TIMING(while_loop_t, while_loop_time);
+		}
+		
 		cpuid = smp_processor_id() % num_online_cpus();
 
 		if (fatal_signal_pending(current)) {
 			ret = -EINTR;
+			if (iov_iter_rw(iter) == WRITE) {
+			  DAX_END_TIMING(while_loop_t, while_loop_time);
+			}
 			break;
 		}
 
@@ -1176,7 +1184,10 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 		  if (iov_iter_rw(iter) == WRITE) {
 		    DAX_END_TIMING(write_get_dax_address_t,write_get_dax_address_time);
 		  }						 
-			break;
+		  if (iov_iter_rw(iter) == WRITE) {
+		    DAX_END_TIMING(while_loop_t, while_loop_time);
+		  }
+		  break;
 		}
 
 		map_len = dax_direct_access(dax_dev, pgoff, PHYS_PFN(size),
@@ -1186,6 +1197,9 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 			if (iov_iter_rw(iter) == WRITE) {
 			  DAX_END_TIMING(write_get_dax_address_t,write_get_dax_address_time);
 			}						 
+			if (iov_iter_rw(iter) == WRITE) {
+			  DAX_END_TIMING(while_loop_t, while_loop_time);
+			}
 			break;
 		}
 		if (iov_iter_rw(iter) == WRITE) {
@@ -1238,8 +1252,15 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 
 		if (xfer == 0)
 			ret = -EFAULT;
-		if (xfer < map_len)
+		if (xfer < map_len) {
+			if (iov_iter_rw(iter) == WRITE) {
+			  DAX_END_TIMING(while_loop_t, while_loop_time);
+			}
 			break;
+		}
+		if (iov_iter_rw(iter) == WRITE) {
+		  DAX_END_TIMING(while_loop_t, while_loop_time);
+		}
 	}
 	dax_read_unlock(id);
 
@@ -1816,6 +1837,7 @@ const char *dax_Timingstring[DAX_TIMING_NUM] = {
 	"write_iomap_actor",
 	"write_iomap_actor_first",
 	"write_iomap_actor_second",
+	"while_loop",
 	"iomap_apply_write_iomap_end",
 	"write_get_dax_address",
 	"write_invalid_pages",

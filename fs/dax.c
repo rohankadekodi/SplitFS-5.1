@@ -1104,18 +1104,30 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 	INIT_TIMING(memcpy_write_time);
 	INIT_TIMING(write_get_dax_address_time);
 	INIT_TIMING(write_invalid_pages_time);
+	INIT_TIMING(write_iomap_actor_time);
+	INIT_TIMING(write_iomap_actor_first_time);
+	INIT_TIMING(write_iomap_actor_second_time);
 
+	if (iov_iter_rw(iter) == WRITE) {
+	  DAX_START_TIMING(write_iomap_actor_t, write_iomap_actor_time);
+	  DAX_START_TIMING(write_iomap_actor_first_t, write_iomap_actor_first_time);
+	}
 	if (iov_iter_rw(iter) == READ) {
 		end = min(end, i_size_read(inode));
-		if (pos >= end)
+		if (pos >= end) {
 			return 0;
+		}
 
 		if (iomap->type == IOMAP_HOLE || iomap->type == IOMAP_UNWRITTEN)
 			return iov_iter_zero(min(length, end - pos), iter);
 	}
 
-	if (WARN_ON_ONCE(iomap->type != IOMAP_MAPPED))
-		return -EIO;
+	if (WARN_ON_ONCE(iomap->type != IOMAP_MAPPED)) {
+	  if (iov_iter_rw(iter) == WRITE) {
+	    DAX_END_TIMING(write_iomap_actor_t, write_iomap_actor_time);
+	  }
+	  return -EIO;
+	}
 
 	/*
 	 * Write can allocate block for an area which has a hole page mapped
@@ -1132,9 +1144,14 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 	}
 	if (iov_iter_rw(iter) == WRITE) {
 	  DAX_END_TIMING(write_invalid_pages_t, write_invalid_pages_time);
+	  DAX_END_TIMING(write_iomap_actor_first_t, write_iomap_actor_first_time);
 	}
 
 	id = dax_read_lock();
+
+	if (iov_iter_rw(iter) == WRITE) {
+	  DAX_START_TIMING(write_iomap_actor_second_t, write_iomap_actor_second_time);
+	}
 	while (pos < end) {
 		unsigned offset = pos & (PAGE_SIZE - 1);
 		const size_t size = ALIGN(length + offset, PAGE_SIZE);
@@ -1226,6 +1243,10 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 	}
 	dax_read_unlock(id);
 
+	if (iov_iter_rw(iter) == WRITE) {
+	  DAX_END_TIMING(write_iomap_actor_t, write_iomap_actor_time);
+	  DAX_END_TIMING(write_iomap_actor_second_t, write_iomap_actor_second_time);
+	}
 	return done ? done : ret;
 }
 
@@ -1792,6 +1813,9 @@ const char *dax_Timingstring[DAX_TIMING_NUM] = {
 	"iomap_apply_read_iomap_end",
 	"iomap_apply_write_iomap_begin",
 	"iomap_apply_write_actor",
+	"write_iomap_actor",
+	"write_iomap_actor_first",
+	"write_iomap_actor_second",
 	"iomap_apply_write_iomap_end",
 	"write_get_dax_address",
 	"write_invalid_pages",

@@ -1154,6 +1154,9 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 	  DAX_START_TIMING(write_iomap_actor_second_t, write_iomap_actor_second_time);
 	}
 	while (pos < end) {
+		if (iov_iter_rw(iter) == WRITE) {
+		  DAX_START_TIMING(while_loop_t, while_loop_time);
+		}
 		unsigned offset = pos & (PAGE_SIZE - 1);
 		const size_t size = ALIGN(length + offset, PAGE_SIZE);
 		const sector_t sector = dax_iomap_sector(iomap, pos);
@@ -1161,10 +1164,6 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 		pgoff_t pgoff;
 		void *kaddr;
 		int cpuid;
-
-		if (iov_iter_rw(iter) == WRITE) {
-		  DAX_START_TIMING(while_loop_t, while_loop_time);
-		}
 		
 		cpuid = smp_processor_id() % num_online_cpus();
 
@@ -1262,11 +1261,13 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 		  DAX_END_TIMING(while_loop_t, while_loop_time);
 		}
 	}
+	if (iov_iter_rw(iter) == WRITE) {
+	  DAX_END_TIMING(write_iomap_actor_second_t, write_iomap_actor_second_time);
+	}
 	dax_read_unlock(id);
 
 	if (iov_iter_rw(iter) == WRITE) {
 	  DAX_END_TIMING(write_iomap_actor_t, write_iomap_actor_time);
-	  DAX_END_TIMING(write_iomap_actor_second_t, write_iomap_actor_second_time);
 	}
 	return done ? done : ret;
 }

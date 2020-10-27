@@ -214,6 +214,8 @@ enum dax_timing_category {
 	iomap_apply_write_iomap_begin_t,
 	iomap_apply_write_actor_t,
 	iomap_apply_write_iomap_end_t,
+	write_get_dax_address_t,
+	write_invalid_pages_t,
         memcpy_read_t,
 	memcpy_write_t,
 

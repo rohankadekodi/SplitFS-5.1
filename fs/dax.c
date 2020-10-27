@@ -1102,6 +1102,8 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 	int id;
 	INIT_TIMING(memcpy_read_time);
 	INIT_TIMING(memcpy_write_time);
+	INIT_TIMING(write_get_dax_address_time);
+	INIT_TIMING(write_invalid_pages_time);
 
 	if (iov_iter_rw(iter) == READ) {
 		end = min(end, i_size_read(inode));
@@ -1120,10 +1122,16 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 	 * into page tables. We have to tear down these mappings so that data
 	 * written by write(2) is visible in mmap.
 	 */
+	if (iov_iter_rw(iter) == WRITE) {
+	  DAX_START_TIMING(write_invalid_pages_t, write_invalid_pages_time);
+	}
 	if (iomap->flags & IOMAP_F_NEW) {
 		invalidate_inode_pages2_range(inode->i_mapping,
 					      pos >> PAGE_SHIFT,
 					      (end - 1) >> PAGE_SHIFT);
+	}
+	if (iov_iter_rw(iter) == WRITE) {
+	  DAX_END_TIMING(write_invalid_pages_t, write_invalid_pages_time);
 	}
 
 	id = dax_read_lock();
@@ -1143,14 +1151,24 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 			break;
 		}
 
+		if (iov_iter_rw(iter) == WRITE) {
+		  DAX_START_TIMING(write_get_dax_address_t,write_get_dax_address_time);
+		}						 
 		ret = bdev_dax_pgoff(bdev, sector, size, &pgoff);
-		if (ret)
+		if (ret) {
+		  if (iov_iter_rw(iter) == WRITE) {
+		    DAX_END_TIMING(write_get_dax_address_t,write_get_dax_address_time);
+		  }						 
 			break;
+		}
 
 		map_len = dax_direct_access(dax_dev, pgoff, PHYS_PFN(size),
 				&kaddr, NULL);
 		if (map_len < 0) {
 			ret = map_len;
+			if (iov_iter_rw(iter) == WRITE) {
+			  DAX_END_TIMING(write_get_dax_address_t,write_get_dax_address_time);
+			}						 
 			break;
 		}
 
@@ -1178,6 +1196,7 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 		  DAX_END_TIMING(memcpy_read_t, memcpy_read_time);
 		}
 
+		/*
 		if (kaddr >= 0xffff99d634400000) {
 		  if (cpuid < 24 || (cpuid >= 48 && cpuid < 72)) {
 		    atomic64_add(xfer, &(inode->i_sb->remote_data));
@@ -1191,6 +1210,7 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 		    atomic64_add(xfer, &(inode->i_sb->local_data));
 		  }
 		}
+		*/
 
 		pos += xfer;
 		length -= xfer;
@@ -1770,6 +1790,8 @@ const char *dax_Timingstring[DAX_TIMING_NUM] = {
 	"iomap_apply_write_iomap_begin",
 	"iomap_apply_write_actor",
 	"iomap_apply_write_iomap_end",
+	"write_get_dax_address",
+	"write_invalid_pages",
 	"read_memcpy",
 	"write_memcpy",
 };

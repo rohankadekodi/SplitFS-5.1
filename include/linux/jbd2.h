@@ -1561,15 +1561,15 @@ extern void __jbd2_journal_drop_transaction(journal_t *, transaction_t *);
 extern int jbd2_cleanup_journal_tail(journal_t *);
 
 /* Fast commit related APIs */
-int jbd2_fc_init(journal_t *journal, int num_fc_blks);
-int jbd2_fc_start(journal_t *journal, tid_t tid);
-int jbd2_fc_stop(journal_t *journal);
-int jbd2_fc_stop_do_commit(journal_t *journal, tid_t tid);
-int jbd2_fc_get_buf(journal_t *journal, struct buffer_head **bh_out);
-int jbd2_fc_wait_bufs(journal_t *journal, int num_blks);
-int jbd2_fc_release_bufs(journal_t *journal);
-int jbd2_submit_inode_data(journal_t *journal, struct jbd2_inode *jinode, loff_t dirty_start, loff_t dirty_end);
-int jbd2_wait_inode_data(journal_t *journal, struct jbd2_inode *jinode);
+extern int jbd2_fc_init(journal_t *journal, int num_fc_blks);
+extern int jbd2_fc_start(journal_t *journal, tid_t tid);
+extern int jbd2_fc_stop(journal_t *journal);
+extern int jbd2_fc_stop_do_commit(journal_t *journal, tid_t tid);
+extern int jbd2_fc_get_buf(journal_t *journal, struct buffer_head **bh_out);
+extern int jbd2_fc_wait_bufs(journal_t *journal, int num_blks);
+extern int jbd2_fc_release_bufs(journal_t *journal);
+extern int jbd2_submit_inode_data(journal_t *journal, struct jbd2_inode *jinode, loff_t dirty_start, loff_t dirty_end);
+extern int jbd2_wait_inode_data(journal_t *journal, struct jbd2_inode *jinode);
 
 /*
  * is_journal_abort

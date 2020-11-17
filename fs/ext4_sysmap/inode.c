@@ -198,6 +198,8 @@ void ext4_evict_inode(struct inode *inode)
 	int err;
 	int extra_credits = 3;
 	struct ext4_xattr_inode_array *ea_inode_array = NULL;
+	INIT_TIMING(evict_time);
+	EXT4_START_TIMING(evict_inode_t, evict_time);
 
 	trace_ext4_evict_inode(inode);
 
@@ -334,9 +336,12 @@ stop_handle:
 	ext4_journal_stop(handle);
 	sb_end_intwrite(inode->i_sb);
 	ext4_xattr_inode_array_free(ea_inode_array);
+
+	EXT4_END_TIMING(evict_inode_t, evict_time);
 	return;
 no_delete:
 	ext4_clear_inode(inode);	/* We must guarantee clearing of inode... */
+	EXT4_END_TIMING(evict_inode_t, evict_time);
 }
 
 #ifdef CONFIG_QUOTA
@@ -414,14 +419,17 @@ int ext4_issue_zeroout(struct inode *inode, ext4_lblk_t lblk, ext4_fsblk_t pblk,
 		       ext4_lblk_t len)
 {
 	int ret;
+	INIT_TIMING(zeroout_blocks_time);
 
 	if (IS_ENCRYPTED(inode))
 		return fscrypt_zeroout_range(inode, lblk, pblk, len);
 
+	EXT4_START_TIMING(zeroout_blocks_t, zeroout_blocks_time);	
 	ret = sb_issue_zeroout(inode->i_sb, pblk, len, GFP_NOFS);
 	if (ret > 0)
 		ret = 0;
 
+	EXT4_END_TIMING(zeroout_blocks_t, zeroout_blocks_time);	
 	return ret;
 }
 
@@ -3446,6 +3454,9 @@ static int ext4_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 	struct ext4_map_blocks map;
 	bool delalloc = false;
 	int ret;
+	INIT_TIMING(lookup_blocks_time);
+	INIT_TIMING(write_iomap_begin_time);
+	INIT_TIMING(read_iomap_begin_time);
 
 	if ((offset >> blkbits) > EXT4_MAX_LOGICAL_BLOCK)
 		return -EINVAL;
@@ -3453,6 +3464,11 @@ static int ext4_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 	last_block = min_t(loff_t, (offset + length - 1) >> blkbits,
 			   EXT4_MAX_LOGICAL_BLOCK);
 
+	if (flags & IOMAP_WRITE) {
+	  EXT4_START_TIMING(write_iomap_begin_t, write_iomap_begin_time);
+	} else {
+	  EXT4_START_TIMING(read_iomap_begin_t, read_iomap_begin_time);
+	}
 	if (flags & IOMAP_REPORT) {
 		if (ext4_has_inline_data(inode)) {
 			ret = ext4_inline_data_iomap(inode, iomap);
@@ -3463,17 +3479,22 @@ static int ext4_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 			}
 		}
 	} else {
-		if (WARN_ON_ONCE(ext4_has_inline_data(inode)))
+	  if (WARN_ON_ONCE(ext4_has_inline_data(inode))) {
 			return -ERANGE;
+	  }
 	}
 
 	map.m_lblk = first_block;
 	map.m_len = last_block - first_block + 1;
 
+	if (!(flags & IOMAP_WRITE)) {
+	  EXT4_START_TIMING(lookup_blocks_t, lookup_blocks_time);
+	}
 	if (flags & IOMAP_REPORT) {
 		ret = ext4_map_blocks(NULL, inode, &map, 0);
-		if (ret < 0)
+		if (ret < 0) {
 			return ret;
+		}
 
 		if (ret == 0) {
 			ext4_lblk_t end = map.m_lblk + map.m_len - 1;
@@ -3515,8 +3536,10 @@ retry:
 		 */
 		handle = ext4_journal_start(inode, EXT4_HT_MAP_BLOCKS,
 					    dio_credits);
-		if (IS_ERR(handle))
+		if (IS_ERR(handle)) {
+		  EXT4_END_TIMING(write_iomap_begin_t, write_iomap_begin_time);
 			return PTR_ERR(handle);
+		}
 
 		ret = ext4_map_blocks(handle, inode, &map,
 				      EXT4_GET_BLOCKS_CREATE_ZERO);
@@ -3525,6 +3548,7 @@ retry:
 			if (ret == -ENOSPC &&
 			    ext4_should_retry_alloc(inode->i_sb, &retries))
 				goto retry;
+			EXT4_END_TIMING(write_iomap_begin_t, write_iomap_begin_time);
 			return ret;
 		}
 
@@ -3544,14 +3568,20 @@ retry:
 			err = ext4_orphan_add(handle, inode);
 			if (err < 0) {
 				ext4_journal_stop(handle);
+				EXT4_END_TIMING(write_iomap_begin_t, write_iomap_begin_time);
 				return err;
 			}
 		}
 		ext4_journal_stop(handle);
 	} else {
 		ret = ext4_map_blocks(NULL, inode, &map, 0);
-		if (ret < 0)
+		if (ret < 0) {
+		  EXT4_END_TIMING(read_iomap_begin_t, read_iomap_begin_time);
 			return ret;
+		}
+	}
+	if (!(flags & IOMAP_WRITE)) {
+	  EXT4_END_TIMING(lookup_blocks_t, lookup_blocks_time);
 	}
 
 	iomap->flags = 0;
@@ -3572,6 +3602,11 @@ retry:
 			iomap->type = IOMAP_UNWRITTEN;
 		} else {
 			WARN_ON_ONCE(1);
+			if (flags & IOMAP_WRITE) {
+			  EXT4_END_TIMING(write_iomap_begin_t, write_iomap_begin_time);
+			} else {
+			  EXT4_END_TIMING(read_iomap_begin_t, read_iomap_begin_time);
+			}
 			return -EIO;
 		}
 		iomap->addr = (u64)map.m_pblk << blkbits;
@@ -3580,6 +3615,11 @@ retry:
 	if (map.m_flags & EXT4_MAP_NEW)
 		iomap->flags |= IOMAP_F_NEW;
 
+	if (flags & IOMAP_WRITE) {
+	  EXT4_END_TIMING(write_iomap_begin_t, write_iomap_begin_time);
+	} else {
+	  EXT4_END_TIMING(read_iomap_begin_t, read_iomap_begin_time);
+	}
 	return 0;
 }
 
@@ -3591,9 +3631,14 @@ static int ext4_iomap_end(struct inode *inode, loff_t offset, loff_t length,
 	int blkbits = inode->i_blkbits;
 	bool truncate = false;
 
+	INIT_TIMING(write_iomap_end_time);
+
 	if (!(flags & IOMAP_WRITE) || (flags & IOMAP_FAULT))
 		return 0;
 
+	if (flags & IOMAP_WRITE) {
+	  EXT4_START_TIMING(write_iomap_end_t, write_iomap_end_time);
+	}
 	handle = ext4_journal_start(inode, EXT4_HT_INODE, 2);
 	if (IS_ERR(handle)) {
 		ret = PTR_ERR(handle);
@@ -3633,6 +3678,9 @@ orphan_del:
 		 */
 		if (inode->i_nlink)
 			ext4_orphan_del(NULL, inode);
+	}
+	if (flags & IOMAP_WRITE) {
+	  EXT4_END_TIMING(write_iomap_end_t, write_iomap_end_time);
 	}
 	return ret;
 }
@@ -4289,14 +4337,6 @@ int ext4_meta_punch_hole(struct inode *inode, loff_t offset, loff_t length, hand
 	 * Write out all dirty pages to avoid race conditions
 	 * Then release them.
 	 */
-    /*
-	if (mapping_tagged(mapping, PAGECACHE_TAG_DIRTY)) {
-		ret = filemap_write_and_wait_range(mapping, offset,
-						   offset + length - 1);
-		if (ret)
-			return ret;
-	}
-    */
 
 	/* No need to punch hole beyond i_size */
 	if (offset >= inode->i_size)
@@ -4327,11 +4367,6 @@ int ext4_meta_punch_hole(struct inode *inode, loff_t offset, loff_t length, hand
 	/* Wait all existing dio workers, newcomers will block on i_mutex */
 	inode_dio_wait(inode);
 
-    /*
-	ret = ext4_break_layouts(inode);
-	if (ret)
-		goto out_dio;
-    */
 	/*
 	 * Prevent page faults from reinstantiating pages we have released from
 	 * page cache.
@@ -4373,16 +4408,17 @@ int ext4_meta_punch_hole(struct inode *inode, loff_t offset, loff_t length, hand
 	}
 
 	if (ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS))
-		ret = ext4_meta_ext_remove_space(inode, first_block,
-						 stop_block - 1, handle);
+		ret = ext4_ext_remove_space(inode, first_block,
+					    stop_block - 1);
+	else
+		ret = ext4_ind_remove_space(handle, inode, first_block,
+					    stop_block);
 
 	if (IS_SYNC(inode))
 		ext4_handle_sync(handle);
 
 	inode->i_mtime = inode->i_ctime = current_time(inode);
-	if (ext4_mark_inode_dirty(handle, inode))
-		BUG();
-
+	ext4_mark_inode_dirty(handle, inode);
 	if (ret >= 0)
 		ext4_update_inode_fsync_trans(handle, inode, 1);
 out_stop:
@@ -6043,11 +6079,6 @@ int ext4_writepage_trans_blocks(struct inode *inode)
 int ext4_chunk_trans_blocks(struct inode *inode, int nrblocks)
 {
 	return ext4_meta_trans_blocks(inode, nrblocks, 1);
-}
-
-int ext4_multi_chunk_trans_blocks(struct inode *inode, int nrblocks, int pextents)
-{
-	return ext4_meta_trans_blocks(inode, nrblocks, pextents);
 }
 
 /*

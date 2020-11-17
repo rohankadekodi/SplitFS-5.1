@@ -1555,6 +1555,71 @@ static int mb_find_extent(struct ext4_buddy *e4b, int block,
 	return ex->fe_len;
 }
 
+static int mb_find_extent_unaligned(struct ext4_buddy *e4b, int block,
+				int needed, struct ext4_free_extent *ex)
+{
+	int next = block;
+	int max, order;
+	void *buddy;
+
+	assert_spin_locked(ext4_group_lock_ptr(e4b->bd_sb, e4b->bd_group));
+	BUG_ON(ex == NULL);
+
+	buddy = mb_find_buddy(e4b, 0, &max);
+	BUG_ON(buddy == NULL);
+	BUG_ON(block >= max);
+	if (mb_test_bit(block, buddy)) {
+		ex->fe_len = 0;
+		ex->fe_start = 0;
+		ex->fe_group = 0;
+		return 0;
+	}
+
+	/* find actual order */
+	order = mb_find_order_for_block(e4b, block);
+	block = block >> order;
+
+	ex->fe_len = 1 << order;
+	ex->fe_start = block << order;
+	ex->fe_group = e4b->bd_group;
+
+	/* calc difference from given start */
+	next = next - ex->fe_start;
+	ex->fe_len -= next;
+	ex->fe_start += next;
+
+	while (needed > ex->fe_len &&
+	       mb_find_buddy(e4b, order, &max)) {
+
+		if (block + 1 >= max)
+			break;
+
+		next = (block + 1) * (1 << order);
+		if (mb_test_bit(next, e4b->bd_bitmap))
+			break;
+
+		order = mb_find_order_for_block(e4b, next);
+		if (order == 9)
+			break;
+
+		block = next >> order;
+		ex->fe_len += 1 << order;
+	}
+
+	if (ex->fe_start + ex->fe_len > (1 << (e4b->bd_blkbits + 3))) {
+		/* Should never happen! (but apparently sometimes does?!?) */
+		WARN_ON(1);
+		ext4_error(e4b->bd_sb, "corruption or bug in mb_find_extent "
+			   "block=%d, order=%d needed=%d ex=%u/%d/%d@%u",
+			   block, order, needed, ex->fe_group, ex->fe_start,
+			   ex->fe_len, ex->fe_logical);
+		ex->fe_len = 0;
+		ex->fe_start = 0;
+		ex->fe_group = 0;
+	}
+	return ex->fe_len;
+}
+
 static int mb_mark_used(struct ext4_buddy *e4b, struct ext4_free_extent *ex)
 {
 	int ord;
@@ -1896,6 +1961,9 @@ void ext4_mb_simple_scan_group(struct ext4_allocation_context *ac,
 
 	BUG_ON(ac->ac_2order <= 0);
 	for (i = ac->ac_2order; i <= sb->s_blocksize_bits + 1; i++) {
+		if (i == 9 && ac->ac_flags & EXT4_MB_NO_ALIGNMENT)
+			continue;
+
 		if (grp->bb_counters[i] == 0)
 			continue;
 
@@ -1951,16 +2019,31 @@ void ext4_mb_complex_scan_group(struct ext4_allocation_context *ac,
 			 * free blocks even though group info says we
 			 * we have free blocks
 			 */
-			ext4_grp_locked_error(sb, e4b->bd_group, 0, 0,
-					"%d free clusters as per "
-					"group info. But bitmap says 0",
-					free);
-			ext4_mark_group_bitmap_corrupted(sb, e4b->bd_group,
-					EXT4_GROUP_INFO_BBITMAP_CORRUPT);
+            if (!(ac->ac_flags & EXT4_MB_NO_ALIGNMENT)) {
+                ext4_grp_locked_error(sb, e4b->bd_group, 0, 0,
+                        "%d free clusters as per "
+                        "group info. But bitmap says 0",
+                        free);
+                ext4_mark_group_bitmap_corrupted(sb, e4b->bd_group,
+                        EXT4_GROUP_INFO_BBITMAP_CORRUPT);
+            }
 			break;
 		}
 
-		mb_find_extent(e4b, i, ac->ac_g_ex.fe_len, &ex);
+        if (ac->ac_flags & EXT4_MB_NO_ALIGNMENT) {
+            if (mb_find_order_for_block(e4b, i) == 9) {
+                int aligned_block = (i >> 9) << 9;
+                int diff_from_start = i - aligned_block;
+                int diff_from_end = 512 - diff_from_start;
+                i += diff_from_end;
+                free -= (1 << 9);
+                continue;
+            }
+            mb_find_extent_unaligned(e4b, i, ac->ac_g_ex.fe_len, &ex);
+        } else {
+            mb_find_extent(e4b, i, ac->ac_g_ex.fe_len, &ex);
+        }
+
 		BUG_ON(ex.fe_len <= 0);
 		if (free < ex.fe_len) {
 			ext4_grp_locked_error(sb, e4b->bd_group, 0, 0,
@@ -2117,9 +2200,11 @@ ext4_mb_regular_allocator(struct ext4_allocation_context *ac)
 	BUG_ON(ac->ac_status == AC_STATUS_FOUND);
 
 	/* first, try the goal */
-	err = ext4_mb_find_by_goal(ac, &e4b);
-	if (err || ac->ac_status == AC_STATUS_FOUND)
-		goto out;
+    if (!(ac->ac_flags & EXT4_MB_NO_ALIGNMENT)) {
+        err = ext4_mb_find_by_goal(ac, &e4b);
+        if (err || ac->ac_status == AC_STATUS_FOUND)
+            goto out;
+    }
 
 	if (unlikely(ac->ac_flags & EXT4_MB_HINT_GOAL_ONLY))
 		goto out;
@@ -2162,6 +2247,8 @@ ext4_mb_regular_allocator(struct ext4_allocation_context *ac)
 	 * cr == 0 try to get exact allocation,
 	 * cr == 3  try to get anything
 	 */
+	if (ac->ac_flags & EXT4_MB_NO_ALIGNMENT)
+		cr = 3;
 repeat:
 	for (; cr < 4 && ac->ac_status == AC_STATUS_CONTINUE; cr++) {
 		ac->ac_criteria = cr;
@@ -2223,6 +2310,12 @@ repeat:
 			if (ac->ac_status != AC_STATUS_CONTINUE)
 				break;
 		}
+	}
+
+	if (ac->ac_status == AC_STATUS_CONTINUE && (ac->ac_flags & EXT4_MB_NO_ALIGNMENT)) {
+		cr = ac->ac_2order ? 0 : 1;
+		ac->ac_flags = ac->ac_flags & ~EXT4_MB_NO_ALIGNMENT;
+		goto repeat;
 	}
 
 	if (ac->ac_b_ex.fe_len > 0 && ac->ac_status != AC_STATUS_FOUND &&
@@ -3202,38 +3295,43 @@ ext4_mb_normalize_request(struct ext4_allocation_context *ac,
 	/* first, try to predict filesize */
 	/* XXX: should this table be tunable? */
 	start_off = 0;
-	if (size <= 16 * 1024) {
-		size = 16 * 1024;
-	} else if (size <= 32 * 1024) {
-		size = 32 * 1024;
-	} else if (size <= 64 * 1024) {
-		size = 64 * 1024;
-	} else if (size <= 128 * 1024) {
-		size = 128 * 1024;
-	} else if (size <= 256 * 1024) {
-		size = 256 * 1024;
-	} else if (size <= 512 * 1024) {
-		size = 512 * 1024;
-	} else if (size <= 1024 * 1024) {
-		size = 1024 * 1024;
-	} else if (NRL_CHECK_SIZE(size, 4 * 1024 * 1024, max, 2 * 1024)) {
-		start_off = ((loff_t)ac->ac_o_ex.fe_logical >>
-						(21 - bsbits)) << 21;
-		size = 2 * 1024 * 1024;
-	} else if (NRL_CHECK_SIZE(size, 8 * 1024 * 1024, max, 4 * 1024)) {
-		start_off = ((loff_t)ac->ac_o_ex.fe_logical >>
-							(22 - bsbits)) << 22;
-		size = 4 * 1024 * 1024;
-	} else if (NRL_CHECK_SIZE(ac->ac_o_ex.fe_len,
-					(8<<20)>>bsbits, max, 8 * 1024)) {
-		start_off = ((loff_t)ac->ac_o_ex.fe_logical >>
-							(23 - bsbits)) << 23;
-		size = 8 * 1024 * 1024;
-	} else {
-		start_off = (loff_t) ac->ac_o_ex.fe_logical << bsbits;
-		size	  = (loff_t) EXT4_C2B(EXT4_SB(ac->ac_sb),
-					      ac->ac_o_ex.fe_len) << bsbits;
-	}
+    if (size <= 16 * 1024) {
+        size = 16 * 1024;
+    } else if (size <= 32 * 1024) {
+        size = 32 * 1024;
+    } else if (size <= 64 * 1024) {
+        size = 64 * 1024;
+    } else if (size <= 128 * 1024) {
+        size = 128 * 1024;
+    } else if (size <= 256 * 1024) {
+        size = 256 * 1024;
+    } else if (size <= 512 * 1024) {
+        size = 512 * 1024;
+    } else if (size <= 1024 * 1024) {
+        size = 1024 * 1024;
+    } else if (NRL_CHECK_SIZE(size, 4 * 1024 * 1024, max, 2 * 1024)) {
+        start_off = ((loff_t)ac->ac_o_ex.fe_logical >>
+                (21 - bsbits)) << 21;
+        size = 2 * 1024 * 1024;
+    }
+    /*
+       } else if (NRL_CHECK_SIZE(size, 8 * 1024 * 1024, max, 4 * 1024)) {
+       start_off = ((loff_t)ac->ac_o_ex.fe_logical >>
+       (22 - bsbits)) << 22;
+       size = 4 * 1024 * 1024;
+       } else if (NRL_CHECK_SIZE(ac->ac_o_ex.fe_len,
+       (8<<20)>>bsbits, max, 8 * 1024)) {
+       start_off = ((loff_t)ac->ac_o_ex.fe_logical >>
+       (23 - bsbits)) << 23;
+       size = 8 * 1024 * 1024;
+       } 
+       */
+    else {
+        start_off = (loff_t) ac->ac_o_ex.fe_logical << bsbits;
+        size	  = (loff_t) EXT4_C2B(EXT4_SB(ac->ac_sb),
+                ac->ac_o_ex.fe_len) << bsbits;
+    }
+
 	size = size >> bsbits;
 	start = start_off >> bsbits;
 
@@ -4765,7 +4863,6 @@ ext4_mb_free_metadata(handle_t *handle, struct ext4_buddy *e4b,
 				ext4_group_first_block_no(sb, group) +
 				EXT4_C2B(sbi, cluster),
 				"Block already on to-be-freed list");
-            dump_stack();
 			return 0;
 		}
 	}

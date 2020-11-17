@@ -66,6 +66,11 @@ EXPORT_SYMBOL(jbd2_journal_get_undo_access);
 EXPORT_SYMBOL(jbd2_journal_set_triggers);
 EXPORT_SYMBOL(jbd2_journal_dirty_metadata);
 EXPORT_SYMBOL(jbd2_journal_forget);
+EXPORT_SYMBOL(jbd2_fc_init);
+EXPORT_SYMBOL(jbd2_fc_start);
+EXPORT_SYMBOL(jbd2_fc_stop);
+EXPORT_SYMBOL(jbd2_fc_stop_do_commit);
+EXPORT_SYMBOL(jbd2_fc_release_bufs);
 #if 0
 EXPORT_SYMBOL(journal_sync_buffer);
 #endif
@@ -986,6 +991,7 @@ int jbd2_journal_bmap(journal_t *journal, unsigned long blocknr,
 	}
 	return err;
 }
+EXPORT_SYMBOL(jbd2_journal_bmap);
 
 /*
  * We play buffer_head aliasing tricks to write data/metadata blocks to

@@ -116,7 +116,7 @@ static struct inode *ext4_get_journal_inode(struct super_block *sb,
 #if !defined(CONFIG_EXT2_FS) && !defined(CONFIG_EXT2_FS_MODULE) && defined(CONFIG_EXT4_USE_FOR_EXT2)
 static struct file_system_type ext2_fs_type = {
 	.owner		= THIS_MODULE,
-	.name		= "ext2",
+	.name		= "ext2_timer",
 	.mount		= ext4_mount,
 	.kill_sb	= kill_block_super,
 	.fs_flags	= FS_REQUIRES_DEV,
@@ -131,7 +131,7 @@ MODULE_ALIAS("ext2");
 
 static struct file_system_type ext3_fs_type = {
 	.owner		= THIS_MODULE,
-	.name		= "ext3",
+	.name		= "ext3_timer",
 	.mount		= ext4_mount,
 	.kill_sb	= kill_block_super,
 	.fs_flags	= FS_REQUIRES_DEV,
@@ -139,6 +139,11 @@ static struct file_system_type ext3_fs_type = {
 MODULE_ALIAS_FS("ext3");
 MODULE_ALIAS("ext3");
 #define IS_EXT3_SB(sb) ((sb)->s_bdev->bd_holder == &ext3_fs_type)
+
+int measure_timing;
+
+module_param(measure_timing, int, 0444);
+MODULE_PARM_DESC(measure_timing, "Timing measurement");
 
 /*
  * This works like sb_bread() except it uses ERR_PTR for error
@@ -1143,7 +1148,7 @@ static void init_once(void *foo)
 
 static int __init init_inodecache(void)
 {
-	ext4_inode_cachep = kmem_cache_create_usercopy("ext4_inode_cache",
+	ext4_inode_cachep = kmem_cache_create_usercopy("ext4_sysmap_inode_cache",
 				sizeof(struct ext4_inode_info), 0,
 				(SLAB_RECLAIM_ACCOUNT|SLAB_MEM_SPREAD|
 					SLAB_ACCOUNT),
@@ -3701,8 +3706,10 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 #ifdef CONFIG_EXT4_FS_POSIX_ACL
 	set_opt(sb, POSIX_ACL);
 #endif
-	if (ext4_has_feature_fast_commit(sb))
+	if (ext4_has_feature_fast_commit(sb)) {
+        printk(KERN_INFO "%s: fast commits enabled\n", __func__);
 		set_opt2(sb, JOURNAL_FAST_COMMIT);
+    }
 	/* don't forget to enable journal_csum when metadata_csum is enabled. */
 	if (ext4_has_metadata_csum(sb))
 		set_opt(sb, JOURNAL_CHECKSUM);
@@ -5527,7 +5534,7 @@ static int ext4_statfs(struct dentry *dentry, struct kstatfs *buf)
 	buf->f_bsize = sb->s_blocksize;
 	buf->f_blocks = ext4_blocks_count(es) - EXT4_C2B(sbi, overhead);
 	bfree = percpu_counter_sum_positive(&sbi->s_freeclusters_counter) -
-        percpu_counter_sum_positive(&sbi->s_dirtyclusters_counter);
+		percpu_counter_sum_positive(&sbi->s_dirtyclusters_counter);
 	/* prevent underflow in case that few free space is available */
 	buf->f_bfree = EXT4_C2B(sbi, max_t(s64, bfree, 0));
 	buf->f_bavail = buf->f_bfree -
@@ -6037,7 +6044,7 @@ static inline int ext3_feature_set_ok(struct super_block *sb)
 
 static struct file_system_type ext4_fs_type = {
 	.owner		= THIS_MODULE,
-	.name		= "ext4",
+	.name		= "ext4_sysmap",
 	.mount		= ext4_mount,
 	.kill_sb	= kill_block_super,
 	.fs_flags	= FS_REQUIRES_DEV,

@@ -2217,7 +2217,7 @@ static int ext4_mb_good_group(struct ext4_allocation_context *ac,
 }
 
 static noinline_for_stack int
-ext4_mb_regular_allocator(struct ext4_allocation_context *ac)
+ext4_mb_regular_allocator_holes(struct ext4_allocation_context *ac)
 {
 	ext4_group_t ngroups, group, i;
 	int cr;
@@ -2355,9 +2355,6 @@ repeat:
 				ext4_mb_scan_aligned(ac, &e4b);
 			else
 				ext4_mb_complex_scan_group(ac, &e4b);
-
-			if (ac->ac_status != AC_STATUS_CONTINUE)
-				break;
 		}
 
 		ext4_unlock_group(sb, group);
@@ -2404,6 +2401,176 @@ out:
 		err = first_err;
 	return err;
 }
+
+static noinline_for_stack int
+ext4_mb_regular_allocator(struct ext4_allocation_context *ac)
+{
+	ext4_group_t ngroups, group, i;
+	int cr;
+	int err = 0, first_err = 0;
+	struct ext4_sb_info *sbi;
+	struct super_block *sb;
+	struct ext4_buddy e4b;
+
+	if (ac->ac_flags & EXT4_MB_NO_ALIGNMENT) {
+		return ext4_mb_regular_allocator_holes(ac);
+	}
+
+	sb = ac->ac_sb;
+	sbi = EXT4_SB(sb);
+	ngroups = ext4_get_groups_count(sb);
+	/* non-extent files are limited to low blocks/groups */
+	if (!(ext4_test_inode_flag(ac->ac_inode, EXT4_INODE_EXTENTS)))
+		ngroups = sbi->s_blockfile_groups;
+
+	BUG_ON(ac->ac_status == AC_STATUS_FOUND);
+
+	/* first, try the goal */
+	err = ext4_mb_find_by_goal(ac, &e4b);
+	if (err || ac->ac_status == AC_STATUS_FOUND)
+		goto out;
+
+	if (unlikely(ac->ac_flags & EXT4_MB_HINT_GOAL_ONLY))
+		goto out;
+
+	/*
+	 * ac->ac2_order is set only if the fe_len is a power of 2
+	 * if ac2_order is set we also set criteria to 0 so that we
+	 * try exact allocation using buddy.
+	 */
+	i = fls(ac->ac_g_ex.fe_len);
+	ac->ac_2order = 0;
+	/*
+	 * We search using buddy data only if the order of the request
+	 * is greater than equal to the sbi_s_mb_order2_reqs
+	 * You can tune it via /sys/fs/ext4/<partition>/mb_order2_req
+	 * We also support searching for power-of-two requests only for
+	 * requests upto maximum buddy size we have constructed.
+	 */
+	if (i >= sbi->s_mb_order2_reqs && i <= sb->s_blocksize_bits + 2) {
+		/*
+		 * This should tell if fe_len is exactly power of 2
+		 */
+		if ((ac->ac_g_ex.fe_len & (~(1 << (i - 1)))) == 0)
+			ac->ac_2order = array_index_nospec(i - 1,
+							   sb->s_blocksize_bits + 2);
+		if (ac->ac_2order > 9) {
+			ac->ac_2order = 9;
+		}
+	}
+
+	/* if stream allocation is enabled, use global goal */
+	if (ac->ac_flags & EXT4_MB_STREAM_ALLOC) {
+		/* TBD: may be hot point */
+		spin_lock(&sbi->s_md_lock);
+		ac->ac_g_ex.fe_group = sbi->s_mb_last_group;
+		ac->ac_g_ex.fe_start = sbi->s_mb_last_start;
+		spin_unlock(&sbi->s_md_lock);
+	}
+
+	/* Let's just scan groups to find more-less suitable blocks */
+	cr = ac->ac_2order ? 0 : 1;
+	/*
+	 * cr == 0 try to get exact allocation,
+	 * cr == 3  try to get anything
+	 */
+repeat:
+
+	for (; cr < 4 && ac->ac_status == AC_STATUS_CONTINUE; cr++) {
+
+		ac->ac_criteria = cr;
+		/*
+		 * searching for the right group start
+		 * from the goal value specified
+		 */
+		group = ac->ac_g_ex.fe_group;
+		for (i = 0; i < ngroups; group++, i++) {
+			int ret = 0;
+			cond_resched();
+			/*
+			 * Artificially restricted ngroups for non-extent
+			 * files makes group > ngroups possible on first loop.
+			 */
+			if (group >= ngroups)
+				group = 0;
+
+			/* This now checks without needing the buddy page */
+			ret = ext4_mb_good_group(ac, group, cr);
+			if (ret <= 0) {
+				if (!first_err)
+					first_err = ret;
+				continue;
+			}
+
+			err = ext4_mb_load_buddy(sb, group, &e4b);
+			if (err)
+				goto out;
+
+			ext4_lock_group(sb, group);
+
+			/*
+			 * We need to check again after locking the
+			 * block group
+			 */
+			ret = ext4_mb_good_group(ac, group, cr);
+			if (ret <= 0) {
+				ext4_unlock_group(sb, group);
+				ext4_mb_unload_buddy(&e4b);
+				if (!first_err)
+					first_err = ret;
+				continue;
+			}
+
+			ac->ac_groups_scanned++;
+			if (cr == 0)
+				ext4_mb_simple_scan_group(ac, &e4b);
+			else if (cr == 1 && sbi->s_stripe &&
+				 !(ac->ac_g_ex.fe_len % sbi->s_stripe))
+				ext4_mb_scan_aligned(ac, &e4b);
+			else
+				ext4_mb_complex_scan_group(ac, &e4b);
+
+			if (ac->ac_status != AC_STATUS_CONTINUE)
+				break;
+
+			ext4_unlock_group(sb, group);
+			ext4_mb_unload_buddy(&e4b);
+			if (ac->ac_status != AC_STATUS_CONTINUE)
+				break;
+		}
+	}
+
+	if (ac->ac_b_ex.fe_len > 0 && ac->ac_status != AC_STATUS_FOUND &&
+	    !(ac->ac_flags & EXT4_MB_HINT_FIRST)) {
+		/*
+		 * We've been searching too long. Let's try to allocate
+		 * the best chunk we've found so far
+		 */
+
+		ext4_mb_try_best_found(ac, &e4b);
+		if (ac->ac_status != AC_STATUS_FOUND) {
+			/*
+			 * Someone more lucky has already allocated it.
+			 * The only thing we can do is just take first
+			 * found block(s)
+			printk(KERN_DEBUG "EXT4-fs: someone won our chunk\n");
+			 */
+			ac->ac_b_ex.fe_group = 0;
+			ac->ac_b_ex.fe_start = 0;
+			ac->ac_b_ex.fe_len = 0;
+			ac->ac_status = AC_STATUS_CONTINUE;
+			ac->ac_flags |= EXT4_MB_HINT_FIRST;
+			cr = 3;
+			atomic_inc(&sbi->s_mb_lost_chunks);
+			goto repeat;
+		}
+	}
+out:
+	if (!err && ac->ac_status != AC_STATUS_FOUND && first_err)
+		err = first_err;
+	return err;
+}
+
 
 static void *ext4_mb_seq_groups_start(struct seq_file *seq, loff_t *pos)
 {

@@ -2304,6 +2304,39 @@ repeat:
 	group = ac->ac_g_ex.fe_group;
 	for (i = 0; i < ngroups; group++, i++) {
 		int ret = 0;
+		/*
+		 * Artificially restricted ngroups for non-extent
+		 * files makes group > ngroups possible on first loop.
+		 */
+		if (group >= ngroups)
+			group = 0;
+
+		/* This now checks without needing the buddy page */
+		ret = ext4_mb_good_group(ac, group, cr);
+		if (ret <= 0) {
+			if (!first_err)
+				first_err = ret;
+			continue;
+		}
+
+		err = ext4_mb_load_buddy(sb, group, &e4b);
+		if (err)
+			goto out;
+
+		ext4_lock_group(sb, group);
+
+		/*
+		 * We need to check again after locking the
+		 * block group
+		 */
+		ret = ext4_mb_good_group(ac, group, cr);
+		if (ret <= 0) {
+			ext4_unlock_group(sb, group);
+			ext4_mb_unload_buddy(&e4b);
+			if (!first_err)
+				first_err = ret;
+			continue;
+		}
 
 		if (ac->ac_flags & EXT4_MB_NO_ALIGNMENT)
 			cr = 3;
@@ -2313,39 +2346,6 @@ repeat:
 			ac->ac_criteria = cr;
 
 			cond_resched();
-			/*
-			 * Artificially restricted ngroups for non-extent
-			 * files makes group > ngroups possible on first loop.
-			 */
-			if (group >= ngroups)
-				group = 0;
-
-			/* This now checks without needing the buddy page */
-			ret = ext4_mb_good_group(ac, group, cr);
-			if (ret <= 0) {
-				if (!first_err)
-					first_err = ret;
-				continue;
-			}
-
-			err = ext4_mb_load_buddy(sb, group, &e4b);
-			if (err)
-				goto out;
-
-			ext4_lock_group(sb, group);
-
-			/*
-			 * We need to check again after locking the
-			 * block group
-			 */
-			ret = ext4_mb_good_group(ac, group, cr);
-			if (ret <= 0) {
-				ext4_unlock_group(sb, group);
-				ext4_mb_unload_buddy(&e4b);
-				if (!first_err)
-					first_err = ret;
-				continue;
-			}
 
 			ac->ac_groups_scanned++;
 			if (cr == 0)
@@ -2356,17 +2356,17 @@ repeat:
 			else
 				ext4_mb_complex_scan_group(ac, &e4b);
 
-			ext4_unlock_group(sb, group);
-			ext4_mb_unload_buddy(&e4b);
-
 			if (ac->ac_status != AC_STATUS_CONTINUE)
 				break;
+		}
 
-			if (ac->ac_status == AC_STATUS_CONTINUE && (ac->ac_flags & EXT4_MB_NO_ALIGNMENT)) {
-				cr = ac->ac_2order ? 0 : 1;
-				ac->ac_flags = ac->ac_flags & ~EXT4_MB_NO_ALIGNMENT;
-				goto repeat;
-			}
+		ext4_unlock_group(sb, group);
+		ext4_mb_unload_buddy(&e4b);
+
+		if (ac->ac_status == AC_STATUS_CONTINUE && (ac->ac_flags & EXT4_MB_NO_ALIGNMENT)) {
+			cr = ac->ac_2order ? 0 : 1;
+			ac->ac_flags = ac->ac_flags & ~EXT4_MB_NO_ALIGNMENT;
+			goto repeat;
 		}
 
 		if (ac->ac_status != AC_STATUS_CONTINUE)

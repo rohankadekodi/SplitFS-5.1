@@ -2236,11 +2236,11 @@ ext4_mb_regular_allocator(struct ext4_allocation_context *ac)
 	BUG_ON(ac->ac_status == AC_STATUS_FOUND);
 
 	/* first, try the goal */
-    if (!(ac->ac_flags & EXT4_MB_NO_ALIGNMENT)) {
-        err = ext4_mb_find_by_goal(ac, &e4b);
-        if (err || ac->ac_status == AC_STATUS_FOUND)
-            goto out;
-    }
+	if (!(ac->ac_flags & EXT4_MB_NO_ALIGNMENT)) {
+		err = ext4_mb_find_by_goal(ac, &e4b);
+		if (err || ac->ac_status == AC_STATUS_FOUND)
+			goto out;
+	}
 
 	if (unlikely(ac->ac_flags & EXT4_MB_HINT_GOAL_ONLY))
 		goto out;
@@ -2266,9 +2266,9 @@ ext4_mb_regular_allocator(struct ext4_allocation_context *ac)
 		if ((ac->ac_g_ex.fe_len & (~(1 << (i - 1)))) == 0)
 			ac->ac_2order = array_index_nospec(i - 1,
 							   sb->s_blocksize_bits + 2);
-        if (ac->ac_2order > 9) {
-            ac->ac_2order = 9;
-        }
+		if (ac->ac_2order > 9) {
+			ac->ac_2order = 9;
+		}
 	}
 
 	/* if stream allocation is enabled, use global goal */
@@ -2286,10 +2286,8 @@ ext4_mb_regular_allocator(struct ext4_allocation_context *ac)
 	 * cr == 0 try to get exact allocation,
 	 * cr == 3  try to get anything
 	 */
-#if 0
 	if (ac->ac_flags & EXT4_MB_NO_ALIGNMENT)
 		cr = 3;
-#endif
 repeat:
 
     /*

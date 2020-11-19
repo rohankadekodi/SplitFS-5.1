@@ -2530,11 +2530,9 @@ repeat:
 			else
 				ext4_mb_complex_scan_group(ac, &e4b);
 
-			if (ac->ac_status != AC_STATUS_CONTINUE)
-				break;
-
 			ext4_unlock_group(sb, group);
 			ext4_mb_unload_buddy(&e4b);
+
 			if (ac->ac_status != AC_STATUS_CONTINUE)
 				break;
 		}

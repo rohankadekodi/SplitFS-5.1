@@ -4212,6 +4212,10 @@ int ext4_ext_map_blocks(handle_t *handle, struct inode *inode,
 	INIT_TIMING(allocate_blocks_time);
 	INIT_TIMING(zeroout_blocks_time);
 
+	if (map->m_len > 512) {
+		map->m_len = 512;
+	}
+
 	EXT4_START_TIMING(allocate_blocks_t, allocate_blocks_time);
 	ext_debug("blocks %u/%u requested for inode %lu\n",
 		  map->m_lblk, map->m_len, inode->i_ino);
@@ -4400,8 +4404,8 @@ int ext4_ext_map_blocks(handle_t *handle, struct inode *inode,
 	if (flags & EXT4_GET_BLOCKS_METADATA_NOFAIL)
 		ar.flags |= EXT4_MB_USE_RESERVED;
 
-	//if (!(current->flags & PF_USE_HUGEPAGES)) {
-	if (map->m_len < 512) {
+	if (!(current->flags & PF_USE_HUGEPAGES)) {
+        //printk(KERN_INFO "%s: breaking hugepages\n", __func__);
 		ar.flags |= EXT4_MB_HINT_NOPREALLOC;
 		ar.flags |= EXT4_MB_NO_ALIGNMENT;
 	}

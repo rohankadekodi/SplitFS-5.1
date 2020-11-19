@@ -2983,6 +2983,7 @@ struct ext4_group_info {
 	ext4_grpblk_t	bb_free;	/* total free blocks */
 	ext4_grpblk_t	bb_fragments;	/* nr of freespace fragments */
 	ext4_grpblk_t	bb_largest_free_order;/* order of largest frag in BG */
+	ext4_grpblk_t   bb_num_hugepages;/* number of hugepages free */
 	struct          list_head bb_prealloc_list;
 #ifdef DOUBLE_CHECK
 	void            *bb_bitmap;
@@ -3373,6 +3374,7 @@ extern const struct iomap_ops ext4_iomap_ops;
 
 void ext4_print_timing_stats(struct super_block *sb);
 void ext4_clear_stats(struct super_block *sb);
+int ext4_fc_info_show(struct seq_file *seq, void *v);
 
 
 #endif	/* __KERNEL__ */

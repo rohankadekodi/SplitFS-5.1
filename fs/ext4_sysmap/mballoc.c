@@ -432,7 +432,7 @@ static void *mb_find_buddy(struct ext4_buddy *e4b, int order, int *max)
 	BUG_ON(e4b->bd_bitmap == e4b->bd_buddy);
 	BUG_ON(max == NULL);
 
-	if (order > e4b->bd_blkbits + 1) {
+	if (order > 9) {
 		*max = 0;
 		return NULL;
 	}
@@ -544,7 +544,7 @@ static int __mb_check_buddy(struct ext4_buddy *e4b, char *file,
 				const char *function, int line)
 {
 	struct super_block *sb = e4b->bd_sb;
-	int order = e4b->bd_blkbits + 1;
+	int order = 9; 
 	int max;
 	int max2;
 	int i;
@@ -662,7 +662,7 @@ static void ext4_mb_mark_free_simple(struct super_block *sb,
 
 	BUG_ON(len > EXT4_CLUSTERS_PER_GROUP(sb));
 
-	border = 2 << sb->s_blocksize_bits;
+    border = 2 << 8;
 
 	while (len > 0) {
 		/* find how many blocks can be covered since this position */
@@ -680,6 +680,9 @@ static void ext4_mb_mark_free_simple(struct super_block *sb,
 		if (min > 0)
 			mb_clear_bit(first >> min,
 				     buddy + sbi->s_mb_offsets[min]);
+		if (min == 9 && first % (2 << 8) == 0) {
+			grp->bb_num_hugepages++;
+		}
 
 		len -= chunk;
 		first += chunk;
@@ -699,6 +702,10 @@ mb_set_largest_free_order(struct super_block *sb, struct ext4_group_info *grp)
 	grp->bb_largest_free_order = -1; /* uninit */
 
 	bits = sb->s_blocksize_bits + 1;
+	if (bits > 9) {
+		bits = 9;
+	}
+
 	for (i = bits; i >= 0; i--) {
 		if (grp->bb_counters[i] > 0) {
 			grp->bb_largest_free_order = i;
@@ -776,7 +783,9 @@ static void mb_regenerate_buddy(struct ext4_buddy *e4b)
 	e4b->bd_info->bb_fragments = 0;
 	memset(e4b->bd_info->bb_counters, 0,
 		sizeof(*e4b->bd_info->bb_counters) *
-		(e4b->bd_sb->s_blocksize_bits + 2));
+		(9 + 1));
+	e4b->bd_info->bb_num_hugepages = 0;
+
 
 	ext4_mb_generate_buddy(e4b->bd_sb, e4b->bd_buddy,
 		e4b->bd_bitmap, e4b->bd_group);
@@ -919,7 +928,9 @@ static int ext4_mb_init_cache(struct page *page, char *incore, gfp_t gfp)
 			grinfo->bb_fragments = 0;
 			memset(grinfo->bb_counters, 0,
 			       sizeof(*grinfo->bb_counters) *
-				(sb->s_blocksize_bits+2));
+				(9 + 1));
+			grinfo->bb_num_hugepages = 0;
+
 			/*
 			 * incore got set to the group block bitmap below
 			 */
@@ -1260,7 +1271,7 @@ static int mb_find_order_for_block(struct ext4_buddy *e4b, int block)
 	BUG_ON(block >= (1 << (e4b->bd_blkbits + 3)));
 
 	bb = e4b->bd_buddy;
-	while (order <= e4b->bd_blkbits + 1) {
+	while (order <= 9) {
 		block = block >> 1;
 		if (!mb_test_bit(block, bb)) {
 			/* this block is part of buddy of order 'order' */
@@ -1391,10 +1402,23 @@ static void mb_buddy_mark_free(struct ext4_buddy *e4b, int first, int last)
 		 */
 
 
-		if (first & 1)
-			e4b->bd_info->bb_counters[order] += mb_buddy_adjust_border(&first, buddy, -1);
-		if (!(last & 1))
-			e4b->bd_info->bb_counters[order] += mb_buddy_adjust_border(&last, buddy, 1);
+		if (first & 1) {
+			int prev_first = first;
+			ext4_grpblk_t num_first_mblocks = mb_buddy_adjust_border(&first, buddy, -1);
+			e4b->bd_info->bb_counters[order] += num_first_mblocks;
+			if ((order == 9) && (prev_first << order) % 512 == 0) {
+				e4b->bd_info->bb_num_hugepages += num_first_mblocks;
+			}
+		}
+
+		if (!(last & 1)) {
+			int prev_last = last;
+			ext4_grpblk_t num_last_mblocks = mb_buddy_adjust_border(&last, buddy, 1);
+			e4b->bd_info->bb_counters[order] += num_last_mblocks;
+			if ((order == 9) && (prev_last << order) % 512 == 0) {
+				e4b->bd_info->bb_num_hugepages += num_last_mblocks;
+			}
+		}
 		if (first > last)
 			break;
 		order++;
@@ -1402,6 +1426,9 @@ static void mb_buddy_mark_free(struct ext4_buddy *e4b, int first, int last)
 		if (first == last || !(buddy2 = mb_find_buddy(e4b, order, &max))) {
 			mb_clear_bits(buddy, first, last - first + 1);
 			e4b->bd_info->bb_counters[order - 1] += last - first + 1;
+			if ((order-1) == 9 && (first << (order-1)) % 512 == 0) {
+				e4b->bd_info->bb_num_hugepages += last - first + 1;
+			}
 			break;
 		}
 		first >>= 1;
@@ -1663,6 +1690,9 @@ static int mb_mark_used(struct ext4_buddy *e4b, struct ext4_free_extent *ex)
 			BUG_ON((start >> ord) >= max);
 			mb_set_bit(start >> ord, buddy);
 			e4b->bd_info->bb_counters[ord]--;
+			if (start % 512 == 0 && ord == 9) {
+				e4b->bd_info->bb_num_hugepages--;
+			}
 			start += mlen;
 			len -= mlen;
 			BUG_ON(len < 0);
@@ -1678,6 +1708,9 @@ static int mb_mark_used(struct ext4_buddy *e4b, struct ext4_free_extent *ex)
 		buddy = mb_find_buddy(e4b, ord, &max);
 		mb_set_bit(start >> ord, buddy);
 		e4b->bd_info->bb_counters[ord]--;
+		if (start % 512 == 0 && ord == 9) {
+			e4b->bd_info->bb_num_hugepages--;
+		}
 
 		ord--;
 		cur = (start >> ord) & ~1U;
@@ -1686,6 +1719,9 @@ static int mb_mark_used(struct ext4_buddy *e4b, struct ext4_free_extent *ex)
 		mb_clear_bit(cur + 1, buddy);
 		e4b->bd_info->bb_counters[ord]++;
 		e4b->bd_info->bb_counters[ord]++;
+		if (start % 512 == 0 && ord == 9) {
+			e4b->bd_info->bb_num_hugepages += 2;
+		}
 	}
 	mb_set_largest_free_order(e4b->bd_sb, e4b->bd_info);
 
@@ -1960,7 +1996,7 @@ void ext4_mb_simple_scan_group(struct ext4_allocation_context *ac,
 	int max;
 
 	BUG_ON(ac->ac_2order <= 0);
-	for (i = ac->ac_2order; i <= sb->s_blocksize_bits + 1; i++) {
+	for (i = ac->ac_2order; i <= 9; i++) {
 		if (i == 9 && ac->ac_flags & EXT4_MB_NO_ALIGNMENT)
 			continue;
 
@@ -2230,6 +2266,9 @@ ext4_mb_regular_allocator(struct ext4_allocation_context *ac)
 		if ((ac->ac_g_ex.fe_len & (~(1 << (i - 1)))) == 0)
 			ac->ac_2order = array_index_nospec(i - 1,
 							   sb->s_blocksize_bits + 2);
+        if (ac->ac_2order > 9) {
+            ac->ac_2order = 9;
+        }
 	}
 
 	/* if stream allocation is enabled, use global goal */
@@ -2250,6 +2289,12 @@ ext4_mb_regular_allocator(struct ext4_allocation_context *ac)
 	if (ac->ac_flags & EXT4_MB_NO_ALIGNMENT)
 		cr = 3;
 repeat:
+
+    /*
+    printk(KERN_INFO "%s: size of allocation = %lu. PF_USE_HUGEPAGES = %d\n",
+            __func__, ac->ac_g_ex.fe_len, ~(ac->ac_flags & EXT4_MB_NO_ALIGNMENT));
+    */
+
 	for (; cr < 4 && ac->ac_status == AC_STATUS_CONTINUE; cr++) {
 		ac->ac_criteria = cr;
 		/*
@@ -2390,11 +2435,11 @@ static int ext4_mb_seq_groups_show(struct seq_file *seq, void *v)
 
 	group--;
 	if (group == 0)
-		seq_puts(seq, "#group: free  frags first ["
+		seq_puts(seq, "#group: free  frags #huge first ["
 			      " 2^0   2^1   2^2   2^3   2^4   2^5   2^6  "
-			      " 2^7   2^8   2^9   2^10  2^11  2^12  2^13  ]\n");
+			      " 2^7   2^8   2^9 ]\n");
 
-	i = (blocksize_bits + 2) * sizeof(sg.info.bb_counters[0]) +
+	i = (9 + 1) * sizeof(sg.info.bb_counters[0]) +
 		sizeof(struct ext4_group_info);
 
 	grinfo = ext4_get_group_info(sb, group);
@@ -2414,9 +2459,9 @@ static int ext4_mb_seq_groups_show(struct seq_file *seq, void *v)
 		ext4_mb_unload_buddy(&e4b);
 
 	seq_printf(seq, "#%-5u: %-5u %-5u %-5u [", group, sg.info.bb_free,
-			sg.info.bb_fragments, sg.info.bb_first_free);
-	for (i = 0; i <= 13; i++)
-		seq_printf(seq, " %-5u", i <= blocksize_bits + 1 ?
+			sg.info.bb_fragments, sg.info.bb_num_hugepages, sg.info.bb_first_free);
+	for (i = 0; i <= 9; i++)
+		seq_printf(seq, " %-5u", i <= 9 ?
 				sg.info.bb_counters[i] : 0);
 	seq_printf(seq, " ]\n");
 
@@ -2640,7 +2685,7 @@ static int ext4_groupinfo_create_slab(size_t size)
 	}
 
 	slab_size = offsetof(struct ext4_group_info,
-				bb_counters[blocksize_bits + 2]);
+				bb_counters[9+1]);
 
 	cachep = kmem_cache_create(ext4_groupinfo_slab_names[cache_index],
 					slab_size, 0, SLAB_RECLAIM_ACCOUNT,
@@ -2666,7 +2711,7 @@ int ext4_mb_init(struct super_block *sb)
 	unsigned max;
 	int ret;
 
-	i = (sb->s_blocksize_bits + 2) * sizeof(*sbi->s_mb_offsets);
+	i = (9+1) * sizeof(*sbi->s_mb_offsets);
 
 	sbi->s_mb_offsets = kmalloc(i, GFP_KERNEL);
 	if (sbi->s_mb_offsets == NULL) {
@@ -2674,7 +2719,7 @@ int ext4_mb_init(struct super_block *sb)
 		goto out;
 	}
 
-	i = (sb->s_blocksize_bits + 2) * sizeof(*sbi->s_mb_maxs);
+	i = (9+1) * sizeof(*sbi->s_mb_maxs);
 	sbi->s_mb_maxs = kmalloc(i, GFP_KERNEL);
 	if (sbi->s_mb_maxs == NULL) {
 		ret = -ENOMEM;
@@ -2700,7 +2745,7 @@ int ext4_mb_init(struct super_block *sb)
 		offset_incr = offset_incr >> 1;
 		max = max >> 1;
 		i++;
-	} while (i <= sb->s_blocksize_bits + 1);
+	} while (i <= 9);
 
 	spin_lock_init(&sbi->s_md_lock);
 	spin_lock_init(&sbi->s_bal_lock);

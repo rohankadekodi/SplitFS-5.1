@@ -731,6 +731,8 @@ static long __ext4_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case EXT4_IOC_SETFLAGS: {
 		int err;
 
+        printk(KERN_INFO "%s: IN SETFLAGS\n", __func__);
+
 		if (!inode_owner_or_capable(inode))
 			return -EACCES;
 
@@ -739,6 +741,7 @@ static long __ext4_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 		if (flags & EXT4_PF_HUGEPAGES) {
 			current->flags |= PF_USE_HUGEPAGES;
+            printk(KERN_INFO "%s: getting hugepages\n", __func__);
 			return 0;
 		}
 

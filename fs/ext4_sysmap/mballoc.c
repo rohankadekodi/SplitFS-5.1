@@ -2297,16 +2297,21 @@ repeat:
             __func__, ac->ac_g_ex.fe_len, ~(ac->ac_flags & EXT4_MB_NO_ALIGNMENT));
     */
 
-	for (; cr < 4 && ac->ac_status == AC_STATUS_CONTINUE; cr++) {
-		ac->ac_criteria = cr;
-		/*
-		 * searching for the right group start
-		 * from the goal value specified
-		 */
-		group = ac->ac_g_ex.fe_group;
+	/*
+	 * searching for the right group start
+	 * from the goal value specified
+	 */
+	group = ac->ac_g_ex.fe_group;
+	for (i = 0; i < ngroups; group++, i++) {
+		int ret = 0;
 
-		for (i = 0; i < ngroups; group++, i++) {
-			int ret = 0;
+		if (ac->ac_flags & EXT4_MB_NO_ALIGNMENT)
+			cr = 3;
+
+		for (; cr < 4 && ac->ac_status == AC_STATUS_CONTINUE; cr++) {
+
+			ac->ac_criteria = cr;
+
 			cond_resched();
 			/*
 			 * Artificially restricted ngroups for non-extent
@@ -2346,7 +2351,7 @@ repeat:
 			if (cr == 0)
 				ext4_mb_simple_scan_group(ac, &e4b);
 			else if (cr == 1 && sbi->s_stripe &&
-					!(ac->ac_g_ex.fe_len % sbi->s_stripe))
+				 !(ac->ac_g_ex.fe_len % sbi->s_stripe))
 				ext4_mb_scan_aligned(ac, &e4b);
 			else
 				ext4_mb_complex_scan_group(ac, &e4b);
@@ -2357,13 +2362,13 @@ repeat:
 			if (ac->ac_status != AC_STATUS_CONTINUE)
 				break;
 		}
+		if (ac->ac_status == AC_STATUS_CONTINUE && (ac->ac_flags & EXT4_MB_NO_ALIGNMENT)) {
+			cr = ac->ac_2order ? 0 : 1;
+			ac->ac_flags = ac->ac_flags & ~EXT4_MB_NO_ALIGNMENT;
+			goto repeat;
+		}
 	}
 
-	if (ac->ac_status == AC_STATUS_CONTINUE && (ac->ac_flags & EXT4_MB_NO_ALIGNMENT)) {
-		cr = ac->ac_2order ? 0 : 1;
-		ac->ac_flags = ac->ac_flags & ~EXT4_MB_NO_ALIGNMENT;
-		goto repeat;
-	}
 
 	if (ac->ac_b_ex.fe_len > 0 && ac->ac_status != AC_STATUS_FOUND &&
 	    !(ac->ac_flags & EXT4_MB_HINT_FIRST)) {

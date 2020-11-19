@@ -2286,8 +2286,10 @@ ext4_mb_regular_allocator(struct ext4_allocation_context *ac)
 	 * cr == 0 try to get exact allocation,
 	 * cr == 3  try to get anything
 	 */
+	/*
 	if (ac->ac_flags & EXT4_MB_NO_ALIGNMENT)
 		cr = 3;
+	*/
 repeat:
 
     /*

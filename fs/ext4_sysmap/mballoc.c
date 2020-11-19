@@ -2361,12 +2361,16 @@ repeat:
 
 			if (ac->ac_status != AC_STATUS_CONTINUE)
 				break;
+
+			if (ac->ac_status == AC_STATUS_CONTINUE && (ac->ac_flags & EXT4_MB_NO_ALIGNMENT)) {
+				cr = ac->ac_2order ? 0 : 1;
+				ac->ac_flags = ac->ac_flags & ~EXT4_MB_NO_ALIGNMENT;
+				goto repeat;
+			}
 		}
-		if (ac->ac_status == AC_STATUS_CONTINUE && (ac->ac_flags & EXT4_MB_NO_ALIGNMENT)) {
-			cr = ac->ac_2order ? 0 : 1;
-			ac->ac_flags = ac->ac_flags & ~EXT4_MB_NO_ALIGNMENT;
-			goto repeat;
-		}
+
+		if (ac->ac_status != AC_STATUS_CONTINUE)
+			break;
 	}
 
 

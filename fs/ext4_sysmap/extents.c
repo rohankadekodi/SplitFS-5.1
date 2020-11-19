@@ -4404,11 +4404,13 @@ int ext4_ext_map_blocks(handle_t *handle, struct inode *inode,
 	if (flags & EXT4_GET_BLOCKS_METADATA_NOFAIL)
 		ar.flags |= EXT4_MB_USE_RESERVED;
 
+#if 0
 	if (!(current->flags & PF_USE_HUGEPAGES)) {
         //printk(KERN_INFO "%s: breaking hugepages\n", __func__);
 		ar.flags |= EXT4_MB_HINT_NOPREALLOC;
 		ar.flags |= EXT4_MB_NO_ALIGNMENT;
 	}
+#endif
 
 	newblock = ext4_mb_new_blocks(handle, &ar, &err);
 	if (!newblock)

@@ -2055,39 +2055,39 @@ void ext4_mb_complex_scan_group(struct ext4_allocation_context *ac,
 			 * free blocks even though group info says we
 			 * we have free blocks
 			 */
-            if (!(ac->ac_flags & EXT4_MB_NO_ALIGNMENT)) {
-                ext4_grp_locked_error(sb, e4b->bd_group, 0, 0,
-                        "%d free clusters as per "
-                        "group info. But bitmap says 0",
-                        free);
-                ext4_mark_group_bitmap_corrupted(sb, e4b->bd_group,
-                        EXT4_GROUP_INFO_BBITMAP_CORRUPT);
-            }
+			if (!(ac->ac_flags & EXT4_MB_NO_ALIGNMENT)) {
+				ext4_grp_locked_error(sb, e4b->bd_group, 0, 0,
+						      "%d free clusters as per "
+						      "group info. But bitmap says 0",
+						      free);
+				ext4_mark_group_bitmap_corrupted(sb, e4b->bd_group,
+								 EXT4_GROUP_INFO_BBITMAP_CORRUPT);
+			}
 			break;
 		}
 
-        if (ac->ac_flags & EXT4_MB_NO_ALIGNMENT) {
-            if (mb_find_order_for_block(e4b, i) == 9) {
-                int aligned_block = (i >> 9) << 9;
-                int diff_from_start = i - aligned_block;
-                int diff_from_end = 512 - diff_from_start;
-                i += diff_from_end;
-                free -= (1 << 9);
-                continue;
-            }
-            mb_find_extent_unaligned(e4b, i, ac->ac_g_ex.fe_len, &ex);
-        } else {
-            mb_find_extent(e4b, i, ac->ac_g_ex.fe_len, &ex);
-        }
+		if (ac->ac_flags & EXT4_MB_NO_ALIGNMENT) {
+			if (mb_find_order_for_block(e4b, i) == 9) {
+				int aligned_block = (i >> 9) << 9;
+				int diff_from_start = i - aligned_block;
+				int diff_from_end = 512 - diff_from_start;
+				i += diff_from_end;
+				free -= (1 << 9);
+				continue;
+			}
+			mb_find_extent_unaligned(e4b, i, ac->ac_g_ex.fe_len, &ex);
+		} else {
+			mb_find_extent(e4b, i, ac->ac_g_ex.fe_len, &ex);
+		}
 
 		BUG_ON(ex.fe_len <= 0);
 		if (free < ex.fe_len) {
 			ext4_grp_locked_error(sb, e4b->bd_group, 0, 0,
-					"%d free clusters as per "
-					"group info. But got %d blocks",
-					free, ex.fe_len);
+					      "%d free clusters as per "
+					      "group info. But got %d blocks",
+					      free, ex.fe_len);
 			ext4_mark_group_bitmap_corrupted(sb, e4b->bd_group,
-					EXT4_GROUP_INFO_BBITMAP_CORRUPT);
+							 EXT4_GROUP_INFO_BBITMAP_CORRUPT);
 			/*
 			 * The number of free blocks differs. This mostly
 			 * indicate that the bitmap is corrupt. So exit
@@ -2286,8 +2286,10 @@ ext4_mb_regular_allocator(struct ext4_allocation_context *ac)
 	 * cr == 0 try to get exact allocation,
 	 * cr == 3  try to get anything
 	 */
+#if 0
 	if (ac->ac_flags & EXT4_MB_NO_ALIGNMENT)
 		cr = 3;
+#endif
 repeat:
 
     /*

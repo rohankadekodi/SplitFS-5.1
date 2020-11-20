@@ -843,12 +843,12 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 		if (sbi->cpus == 96) {
 			for (i = 0; i < sbi->cpus; i++) {
 				if (i < 24 || (i >= 48 && i < 72)) {
-					sbi->numa_cpus[0].cpus[i] = i;
+					sbi->numa_cpus[0].cpus[sbi->numa_cpus[0].num_cpus] = i;
 					sbi->numa_cpus[0].num_cpus++;
 					sbi->cpu_numa_node[i] = 0;
 					cpumask_set_cpu(i, &sbi->numa_cpus[0].cpumask);
 				} else {
-					sbi->numa_cpus[1].cpus[i] = i;
+					sbi->numa_cpus[1].cpus[sbi->numa_cpus[1].num_cpus] = i;
 					sbi->numa_cpus[1].num_cpus++;
 					sbi->cpu_numa_node[i] = 1;
 					cpumask_set_cpu(i, &sbi->numa_cpus[1].cpumask);

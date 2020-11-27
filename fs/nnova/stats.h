@@ -238,7 +238,7 @@ typedef struct timespec timing_t;
 	__this_cpu_add(Countstats_percpu[name], 1); \
 	}
 
-#define NOVA_END_TIMING_DONT_ADD(name, start)
+#define NOVA_END_TIMING_DONT_ADD(name, start) \
 	{if (measure_timing) { \
 		INIT_TIMING(end); \
 		getrawmonotonic(&end); \

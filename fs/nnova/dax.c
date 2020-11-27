@@ -1023,15 +1023,10 @@ int nova_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 	INIT_TIMING(remote_fault_time);
 	INIT_TIMING(local_fault_time);
 
-	NOVA_START_TIMING(local_fault_t, local_fault_time);
-	NOVA_START_TIMING(remote_fault_t, remote_fault_time);
-
 	ret = nova_dax_get_blocks(inode, first_block, max_blocks, &bno, &new,
 				  &boundary, flags & IOMAP_WRITE, taking_lock);
 	if (ret < 0) {
-		nova_dbg("%s: nova_dax_get_blocks failed %d", __func__, ret);
-		NOVA_END_TIMING_DONT_ADD(local_fault_t, local_fault_time);
-		NOVA_END_TIMING_DONT_ADD(remote_fault_t, remote_fault_time);
+		nova_dbgv("%s: nova_dax_get_blocks failed %d", __func__, ret);
 		return ret;
 	}
 
@@ -1053,11 +1048,15 @@ int nova_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 		byte_offset_in_dax = bno * PAGE_SIZE;
 		if (byte_offset_in_dax >= sbi->initsize) {
 			if (cpu < 24 || (cpu >= 48 && cpu < 72)) {
-				NOVA_END_TIMING(remote_fault_t, remote_fault_time);
-				NOVA_END_TIMING_DONT_ADD(local_fault_t, local_fault_time);
+				if (taking_lock) {
+					NOVA_START_TIMING(remote_fault_t, remote_fault_time);
+					NOVA_END_TIMING(remote_fault_t, remote_fault_time);
+				}
 			} else {
-				NOVA_END_TIMING_DONT_ADD(remote_fault_t, remote_fault_time);
-				NOVA_END_TIMING(local_fault_t, local_fault_time);
+				if (taking_lock) {
+					NOVA_START_TIMING(local_fault_t, local_fault_time);
+					NOVA_END_TIMING(local_fault_t, local_fault_time);
+				}
 			}
 			first_virt_end = (unsigned long) sbi->virt_addr + (unsigned long) sbi->initsize;
 			second_virt_start = (unsigned long) sbi->virt_addr_2;
@@ -1066,11 +1065,15 @@ int nova_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 			iomap->addr = byte_offset_in_dax;
 		} else {
 			if (cpu >= 72 || (cpu >= 24 && cpu < 48)) {
-				NOVA_END_TIMING(remote_fault_t, remote_fault_time);
-				NOVA_END_TIMING_DONT_ADD(local_fault_t, local_fault_time);
+				if (taking_lock) {
+					NOVA_START_TIMING(remote_fault_t, remote_fault_time);
+					NOVA_END_TIMING(remote_fault_t, remote_fault_time);
+				}
 			} else {
-				NOVA_END_TIMING_DONT_ADD(remote_fault_t, remote_fault_time);
-				NOVA_END_TIMING(local_fault_t, local_fault_time);
+				if (taking_lock) {
+					NOVA_START_TIMING(local_fault_t, local_fault_time);
+					NOVA_END_TIMING(local_fault_t, local_fault_time);
+				}
 			}
 		}
 	}

@@ -1093,12 +1093,9 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
             continue;
         }
 
-
-        /*
         rec_map.m_lblk = rec_cur_lblk;
         rec_map.m_len = map.m_len;
         rec_map_ret = ext4_map_blocks(NULL, rec_inode, &rec_map, 0);
-        */
 
         /*
         memset(&newex, 0, sizeof(newex));
@@ -1121,10 +1118,10 @@ ext4_dynamic_remap(struct file *file1, struct file *file2,
             BUG();
 
 remove_rec_space:
-        /*
-        down_write(&EXT4_I(rec_inode)->i_data_sem);
 
+        down_write(&EXT4_I(rec_inode)->i_data_sem);
         if (rec_map_ret > 0) {
+            /*
             printk(KERN_INFO "%s: rec_ino = %lu, donor_ino = %lu, rec_map.m_lblk = %lld, rec_map.m_len = %lu, rec_map.m_pblk = %lld, rec_map.m_flags = %x",
                     __func__, rec_inode->i_ino, donor_inode->i_ino, rec_map.m_lblk, rec_map.m_len, rec_map.m_pblk, rec_map.m_flags);
 
@@ -1138,6 +1135,7 @@ remove_rec_space:
                         __func__, ret);
                 BUG();
             }
+            */
 
             if (ext4_fallocate_for_dr(handle, file1,
                         FALLOC_FL_PUNCH_HOLE,
@@ -1153,9 +1151,9 @@ remove_rec_space:
                 rec_map.m_len = map.m_len - rec_hole_size;
                 rec_map_ret = ext4_map_blocks(NULL, rec_inode, &rec_map, 0);
                 goto remove_rec_space;
-            }		  
+            }
         }
-        */
+        up_write((&EXT4_I(rec_inode)->i_data_sem));
 
         // Call the ext4_fallocate function to allocate memory to file 1.
         if (ext4_fallocate_for_dr(handle, file1, 0, rec_cur_lblk << blkbits, map.m_len << blkbits))

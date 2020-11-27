@@ -142,6 +142,8 @@ const char *Timingstring[TIMING_NUM] = {
 	"udpate_mapping",
 	"udpate_pfn",
 	"mmap_handler",
+	"remote_fault",
+	"local_fault",
 
 	/* Rebuild */
 	"=================== Rebuild ====================",

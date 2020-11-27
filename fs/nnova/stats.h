@@ -145,6 +145,8 @@ enum timing_category {
 	update_mapping_t,
 	update_pfn_t,
 	mmap_handler_t,
+	remote_fault_t,
+	local_fault_t,
 
 	/* Rebuild */
 	rebuild_title_t,
@@ -232,6 +234,14 @@ typedef struct timespec timing_t;
 		__this_cpu_add(Timingstats_percpu[name], \
 			(end.tv_sec - start.tv_sec) * 1000000000 + \
 			(end.tv_nsec - start.tv_nsec)); \
+	} \
+	__this_cpu_add(Countstats_percpu[name], 1); \
+	}
+
+#define NOVA_END_TIMING_DONT_ADD(name, start)
+	{if (measure_timing) { \
+		INIT_TIMING(end); \
+		getrawmonotonic(&end); \
 	} \
 	__this_cpu_add(Countstats_percpu[name], 1); \
 	}

@@ -505,6 +505,10 @@ static int __pmfs_xip_file_fault(struct vm_area_struct *vma,
 	int err;
 	timing_t remote_fault_time, local_fault_time;
 	u64 bno, byte_offset_in_dax;
+	int cpu;
+	struct pmfs_sb_info *sbi = PMFS_SB(inode->i_sb);
+
+	cpu = smp_processor_id() % 96;
 
 	size = (i_size_read(inode) + PAGE_SIZE - 1) >> PAGE_SHIFT;
 	if (vmf->pgoff >= size) {

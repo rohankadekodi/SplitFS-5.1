@@ -1177,12 +1177,12 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 
 		if (iov_iter_rw(iter) == WRITE) {
 		  DAX_START_TIMING(write_get_dax_address_t,write_get_dax_address_time);
-		}						 
+		}
 		ret = bdev_dax_pgoff(bdev, sector, size, &pgoff);
 		if (ret) {
 		  if (iov_iter_rw(iter) == WRITE) {
 		    DAX_END_TIMING(write_get_dax_address_t,write_get_dax_address_time);
-		  }						 
+		  }
 		  if (iov_iter_rw(iter) == WRITE) {
 		    DAX_END_TIMING(while_loop_t, while_loop_time);
 		  }
@@ -1195,7 +1195,7 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 			ret = map_len;
 			if (iov_iter_rw(iter) == WRITE) {
 			  DAX_END_TIMING(write_get_dax_address_t,write_get_dax_address_time);
-			}						 
+			}
 			if (iov_iter_rw(iter) == WRITE) {
 			  DAX_END_TIMING(while_loop_t, while_loop_time);
 			}
@@ -1203,7 +1203,7 @@ dax_iomap_actor(struct inode *inode, loff_t pos, loff_t length, void *data,
 		}
 		if (iov_iter_rw(iter) == WRITE) {
 		  DAX_END_TIMING(write_get_dax_address_t,write_get_dax_address_time);
-		}						 
+		}
 
 		map_len = PFN_PHYS(map_len);
 		kaddr += offset;

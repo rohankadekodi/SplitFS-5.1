@@ -503,6 +503,8 @@ static int __pmfs_xip_file_fault(struct vm_area_struct *vma,
 	void *xip_mem;
 	unsigned long xip_pfn;
 	int err;
+	timing_t remote_fault_time, local_fault_time;
+	u64 bno, byte_offset_in_dax;
 
 	size = (i_size_read(inode) + PAGE_SIZE - 1) >> PAGE_SHIFT;
 	if (vmf->pgoff >= size) {
@@ -528,6 +530,7 @@ static int __pmfs_xip_file_fault(struct vm_area_struct *vma,
 			PAGE_SIZE, (unsigned long)vmf->address,
 			(unsigned long)xip_pfn << PAGE_SHIFT);
 
+
 	err = vmf_insert_mixed(vma, (unsigned long)vmf->address,
 			pfn_to_pfn_t(xip_pfn));
 
@@ -539,6 +542,27 @@ static int __pmfs_xip_file_fault(struct vm_area_struct *vma,
 	 */
 	//if (err != -EBUSY)
 	//	BUG_ON(err);
+
+	bno = pmfs_get_bno_from_addr(inode->i_sb, xip_mem);
+	byte_offset_in_dax = bno * PAGE_SIZE;
+	if (byte_offset_in_dax >= sbi->initsize) {
+		if (cpu < 24 || (cpu >= 48 && cpu < 72)) {
+			PMFS_START_TIMING(remote_fault_t, remote_fault_time);
+			PMFS_END_TIMING(remote_fault_t, remote_fault_time);
+		} else {
+			PMFS_START_TIMING(local_fault_t, local_fault_time);
+			PMFS_END_TIMING(local_fault_t, local_fault_time);
+		}
+	} else {
+		if (cpu >= 72 || (cpu >= 24 && cpu < 48)) {
+			PMFS_START_TIMING(remote_fault_t, remote_fault_time);
+			PMFS_END_TIMING(remote_fault_t, remote_fault_time);
+		} else {
+			PMFS_START_TIMING(local_fault_t, local_fault_time);
+			PMFS_END_TIMING(local_fault_t, local_fault_time);
+		}
+	}
+
 	return VM_FAULT_NOPAGE;
 }
 

@@ -19,6 +19,8 @@ const char *Timingstring[TIMING_NUM] =
 	"internal_write",
 	"memcpy_read",
 	"memcpy_write",
+	"remote_fault",
+	"local_fault",
 	"alloc_blocks",
 	"new_trans",
 	"add_logentry",

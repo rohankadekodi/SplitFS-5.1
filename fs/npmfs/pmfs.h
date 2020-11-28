@@ -109,7 +109,7 @@ extern unsigned int blk_type_to_size[PMFS_BLOCK_TYPE_MAX];
 enum timing_category {
 	create_t,
 	new_inode_t,
-	add_nondir_t,	
+	add_nondir_t,
 	unlink_t,
 	evict_inode_t,
 	remove_entry_t,
@@ -124,6 +124,8 @@ enum timing_category {
 	internal_write_t,
 	memcpy_r_t,
 	memcpy_w_t,
+	remote_fault_t,
+	local_fault_t,
 	alloc_blocks_t,
 	new_trans_t,
 	add_log_t,
@@ -414,6 +416,13 @@ static inline void *pmfs_get_block(struct super_block *sb, u64 block)
 	struct pmfs_super_block *ps = pmfs_get_super(sb);
 
 	return block ? ((void *)ps + block) : NULL;
+}
+
+static inline u64 pmfs_get_bno_from_addr(struct super_block *sb, void *kaddr)
+{
+	struct pmfs_super_block *ps = pmfs_get_super(sb);
+
+	return kaddr ? (kaddr - (void *)ps) : 0;
 }
 
 /* uses CPU instructions to atomically write up to 8 bytes */

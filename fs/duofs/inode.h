@@ -195,7 +195,7 @@ static inline struct pmfs_inode *pmfs_get_inode(struct super_block *sb, u64 ino)
 	unsigned long curr_addr;
 	int allocated;
 
-	if (ino > PMFS_BLOCKNODE_IN0 && ino < PMFS_NORMAL_INODE_START)
+	if (ino > PMFS_INODELIST_IN0 && ino < PMFS_NORMAL_INODE_START)
 		return NULL;
 
 	data_bits = blk_type_to_shift[pmfs_inode_table->i_blk_type];

@@ -157,8 +157,9 @@ struct pmfs_super_block {
 /* The root inode follows immediately after the redundant super block */
 #define PMFS_ROOT_INO (1)
 #define PMFS_BLOCKNODE_IN0 (2)
+#define PMFS_INODELIST_IN0 (3)
 
-#define PMFS_FREE_INODE_HINT_START      (3)
+#define PMFS_FREE_INODE_HINT_START      (4)
 #define PMFS_NORMAL_INODE_START         (32)
 
 /* ======================= Write ordering ========================= */

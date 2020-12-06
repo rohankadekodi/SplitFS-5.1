@@ -367,6 +367,8 @@ struct pmfs_range_node_lowhigh {
 	__le64 range_high;
 };
 
+#define	RANGENODE_PER_PAGE	256
+
 struct pmfs_range_node {
 	struct rb_node node;
 	struct vm_area_struct *vma;
@@ -626,6 +628,7 @@ extern const struct address_space_operations pmfs_aops_xip;
 void pmfs_init_header(struct super_block *sb,
 		      struct pmfs_inode_info_header *sih, u16 i_mode);
 void pmfs_save_blocknode_mappings(struct super_block *sb);
+void pmfs_save_inode_list(struct super_block *sb);
 
 /* namei.c */
 extern const struct inode_operations pmfs_dir_inode_operations;

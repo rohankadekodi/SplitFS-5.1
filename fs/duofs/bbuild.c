@@ -239,7 +239,7 @@ static u64 pmfs_append_range_node_entry(struct super_block *sb,
 	entry->range_high = cpu_to_le64(curr->range_high);
 	//pmfs_memlock_range(sb, entry, size);
 	pmfs_dbg_verbose("append entry block low 0x%lx, high 0x%lx\n",
-			curr->range_low, curr->range_high);
+		 curr->range_low, curr->range_high);
 
 	pmfs_flush_buffer(entry, sizeof(struct pmfs_range_node_lowhigh), 0);
 out:
@@ -254,8 +254,18 @@ static u64 pmfs_save_range_nodes(struct super_block *sb, struct pmfs_inode *pi,
 	size_t size = sizeof(struct pmfs_range_node_lowhigh);
 	u64 curr_entry = 0;
 	u64 blocknr = 0;
-	void *p;
+	unsigned long p;
 	u64 bp;
+	int i;
+
+	if (blocknode_ctr != 0) {
+		blocknr = blocknode_ctr / RANGENODE_PER_PAGE;
+		__pmfs_find_data_blocks(sb, pi, blocknr, &bp, 1);
+		p = (unsigned long)pmfs_get_block(sb, bp);
+		for (i = 0; i < (blocknode_ctr % RANGENODE_PER_PAGE); i++) {
+			p += (unsigned long) size;
+		}
+	}
 
 	/* Save in increasing order */
 	temp = rb_first(tree);
@@ -265,11 +275,11 @@ static u64 pmfs_save_range_nodes(struct super_block *sb, struct pmfs_inode *pi,
 		if (blocknode_ctr % RANGENODE_PER_PAGE == 0) {
 			blocknr = blocknode_ctr / RANGENODE_PER_PAGE;
 			__pmfs_find_data_blocks(sb, pi, blocknr, &bp, 1);
-			p = pmfs_get_block(sb, bp);
+			p = (unsigned long)pmfs_get_block(sb, bp);
 		}
 
 		pmfs_append_range_node_entry(sb, curr,
-					     p, cpuid);
+					     (void *)p, cpuid);
 		p += (unsigned long)size;
 		temp = rb_next(temp);
 		rb_erase(&curr->node, tree);

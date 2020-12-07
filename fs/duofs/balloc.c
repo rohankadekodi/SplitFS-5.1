@@ -111,6 +111,12 @@ static void pmfs_init_free_list(struct super_block *sb,
 
 	if (index == 0)
 		free_list->block_start += sbi->head_reserved_blocks;
+
+	free_list->num_free_blocks = 0;
+	free_list->num_blocknode_unaligned = 0;
+	free_list->num_blocknode_huge_aligned = 0;
+	free_list->first_node_unaligned = NULL;
+	free_list->first_node_huge_aligned = NULL;
 }
 
 void pmfs_delete_free_lists(struct super_block *sb)
@@ -132,7 +138,9 @@ static void swap_free_lists(struct super_block *sb, int first_list,
 	memcpy(&sbi->free_lists[second_list], &temp_free_list, sizeof(struct free_list));
 }
 
-void pmfs_init_blockmap(struct super_block *sb, unsigned long init_used_size)
+void pmfs_init_blockmap(struct super_block *sb,
+			unsigned long init_used_size,
+			int recovery)
 {
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	struct rb_root *unaligned_tree;
@@ -161,124 +169,132 @@ void pmfs_init_blockmap(struct super_block *sb, unsigned long init_used_size)
 		huge_aligned_tree = &(free_list->huge_aligned_block_free_tree);
 		pmfs_init_free_list(sb, free_list, i);
 
-		free_list->num_free_blocks = free_list->block_end -
-			free_list->block_start + 1;
+		if (recovery == 0) {
+			free_list->num_free_blocks = free_list->block_end -
+				free_list->block_start + 1;
 
-		free_list->num_blocknode_unaligned = 0;
-		free_list->num_blocknode_huge_aligned = 0;
-		free_list->first_node_unaligned = NULL;
-		free_list->first_node_huge_aligned = NULL;
+			free_list->num_blocknode_unaligned = 0;
+			free_list->num_blocknode_huge_aligned = 0;
+			free_list->first_node_unaligned = NULL;
+			free_list->first_node_huge_aligned = NULL;
 
-		aligned_start = free_list->block_start;
-		aligned_end = free_list->block_end;
+			aligned_start = free_list->block_start;
+			aligned_end = free_list->block_end;
 
-		unaligned_start = unaligned_end = free_list->block_start;
-		while (!(IS_BLOCK_2MB_ALIGNED(unaligned_end))) {
-			unaligned_end++;
-		}
-
-		if (unaligned_end != unaligned_start) {
-			blknode = pmfs_alloc_blocknode(sb);
-			if (blknode == NULL)
-				PMFS_ASSERT(0);
-			blknode->range_low = unaligned_start;
-			blknode->range_high = unaligned_end - 1;
-			ret = pmfs_insert_blocktree(unaligned_tree, blknode);
-			if (ret) {
-				pmfs_err(sb, "%s failed\n", __func__);
-				pmfs_free_blocknode(blknode);
-				return;
+			unaligned_start = unaligned_end = free_list->block_start;
+			while (!(IS_BLOCK_2MB_ALIGNED(unaligned_end))) {
+				unaligned_end++;
 			}
-			free_list->first_node_unaligned = blknode;
-			free_list->num_blocknode_unaligned++;
-			aligned_start = unaligned_end;
-		}
 
-
-		unaligned_start = unaligned_end = free_list->block_end;
-		while (!(IS_BLOCK_2MB_ALIGNED(unaligned_start))) {
-			unaligned_start--;
-		}
-
-		if (unaligned_end != unaligned_start) {
-			blknode = pmfs_alloc_blocknode(sb);
-			if (blknode == NULL)
-				PMFS_ASSERT(0);
-			blknode->range_low = unaligned_start;
-			blknode->range_high = unaligned_end;
-			ret = pmfs_insert_blocktree(unaligned_tree, blknode);
-			if (ret) {
-				pmfs_err(sb, "%s failed\n", __func__);
-				pmfs_free_blocknode(blknode);
-				return;
-			}
-			if (free_list->first_node_unaligned == NULL)
+			if (unaligned_end != unaligned_start) {
+				blknode = pmfs_alloc_blocknode(sb);
+				if (blknode == NULL)
+					PMFS_ASSERT(0);
+				blknode->range_low = unaligned_start;
+				blknode->range_high = unaligned_end - 1;
+				ret = pmfs_insert_blocktree(unaligned_tree, blknode);
+				if (ret) {
+					pmfs_err(sb, "%s failed\n", __func__);
+					pmfs_free_blocknode(sb, blknode);
+					return;
+				}
 				free_list->first_node_unaligned = blknode;
-			free_list->num_blocknode_unaligned++;
-			aligned_end = unaligned_start - 1;
-		}
+				free_list->num_blocknode_unaligned++;
+				aligned_start = unaligned_end;
+			}
 
-		num_hugepages = (aligned_end - aligned_start + 1) / PAGES_PER_2MB;
-		pmfs_dbg_verbose("%s: number of huge pages in list %d = %lu\n",
-				 __func__, i, num_hugepages);
 
-		blknode = NULL;
-		for (j = aligned_start; j < aligned_end; j += PAGES_PER_2MB) {
-			blknode = pmfs_alloc_blocknode(sb);
-			if (blknode == NULL)
-				PMFS_ASSERT(0);
-			blknode->range_low = j;
-			blknode->range_high = j + PAGES_PER_2MB - 1;
+			unaligned_start = unaligned_end = free_list->block_end;
+			while (!(IS_BLOCK_2MB_ALIGNED(unaligned_start))) {
+				unaligned_start--;
+			}
 
-			if (blknode->range_low < free_list->block_start ||
-			    blknode->range_high > free_list->block_end) {
+			if (unaligned_end != unaligned_start) {
+				blknode = pmfs_alloc_blocknode(sb);
+				if (blknode == NULL)
+					PMFS_ASSERT(0);
+				blknode->range_low = unaligned_start;
+				blknode->range_high = unaligned_end;
+				ret = pmfs_insert_blocktree(unaligned_tree, blknode);
+				if (ret) {
+					pmfs_err(sb, "%s failed\n", __func__);
+					pmfs_free_blocknode(sb, blknode);
+					return;
+				}
+				if (free_list->first_node_unaligned == NULL)
+					free_list->first_node_unaligned = blknode;
+				free_list->num_blocknode_unaligned++;
+				aligned_end = unaligned_start - 1;
+			}
+
+			num_hugepages = (aligned_end - aligned_start + 1) / PAGES_PER_2MB;
+			pmfs_dbg_verbose("%s: number of huge pages in list %d = %lu\n",
+					 __func__, i, num_hugepages);
+
+			blknode = NULL;
+			for (j = aligned_start; j < aligned_end; j += PAGES_PER_2MB) {
+				blknode = pmfs_alloc_blocknode(sb);
+				if (blknode == NULL)
+					PMFS_ASSERT(0);
+				blknode->range_low = j;
+				blknode->range_high = j + PAGES_PER_2MB - 1;
+
+				if (blknode->range_low < free_list->block_start ||
+				    blknode->range_high > free_list->block_end) {
+					pmfs_err(sb, "%s failed\n", __func__);
+					pmfs_free_blocknode(sb, blknode);
+					return;
+				}
+
+				ret = pmfs_insert_blocktree(huge_aligned_tree, blknode);
+				if (ret) {
+					pmfs_err(sb, "%s failed\n", __func__);
+					pmfs_free_blocknode(sb, blknode);
+					return;
+				}
+				if (j == aligned_start) {
+					free_list->first_node_huge_aligned = blknode;
+				}
+				free_list->num_blocknode_huge_aligned++;
+			}
+
+			if (free_list->first_node_huge_aligned == NULL) {
 				pmfs_err(sb, "%s failed\n", __func__);
-				pmfs_free_blocknode(blknode);
 				return;
 			}
-
-			ret = pmfs_insert_blocktree(huge_aligned_tree, blknode);
-			if (ret) {
-				pmfs_err(sb, "%s failed\n", __func__);
-				pmfs_free_blocknode(blknode);
-				return;
-			}
-			if (j == aligned_start) {
-				free_list->first_node_huge_aligned = blknode;
-			}
-			free_list->num_blocknode_huge_aligned++;
-		}
-
-		if (free_list->first_node_huge_aligned == NULL) {
-			pmfs_err(sb, "%s failed\n", __func__);
-			return;
 		}
 
 	}
 
-	if (sbi->num_numa_nodes == 2) {
-		if (sbi->cpus == 96) {
-			for (i = 24, j = 48; i < 48; i++, j++) {
-				swap_free_lists(sb, i, j);
-			}
-		} else if (sbi->cpus == 32) {
-			for (i = 8, j = 16; i < 16; i++, j++) {
-				swap_free_lists(sb, i, j);
+	if (recovery == 0) {
+		if (sbi->num_numa_nodes == 2) {
+			if (sbi->cpus == 96) {
+				for (i = 24, j = 48; i < 48; i++, j++) {
+					swap_free_lists(sb, i, j);
+				}
+			} else if (sbi->cpus == 32) {
+				for (i = 8, j = 16; i < 16; i++, j++) {
+					swap_free_lists(sb, i, j);
+				}
 			}
 		}
-	}
 
-	for (i = 0; i < sbi->cpus; i++) {
-		free_list = pmfs_get_free_list(sb, i);
-		pmfs_dbg("%s: free list %d: block start %lu, end %lu, "
-			 "%lu free blocks. num_aligned_nodes = %lu, "
-			 "num_unaligned_nodes = %lu\n",
-			 __func__, i,
-			 free_list->block_start,
-			 free_list->block_end,
-			 free_list->num_free_blocks,
-			 free_list->num_blocknode_huge_aligned,
-			 free_list->num_blocknode_unaligned);
+		for (i = 0; i < sbi->cpus; i++) {
+			free_list = pmfs_get_free_list(sb, i);
+			pmfs_dbg("%s: free list %d: block start %lu, end %lu, "
+				 "%lu free blocks. num_aligned_nodes = %lu, "
+				 "num_unaligned_nodes = %lu, num_allocated_blocknodes = %lu, "
+				 "aligned_block_start = %lu, unaligned_block_start = %lu\n",
+				 __func__, i,
+				 free_list->block_start,
+				 free_list->block_end,
+				 free_list->num_free_blocks,
+				 free_list->num_blocknode_huge_aligned,
+				 free_list->num_blocknode_unaligned,
+				 sbi->num_blocknode_allocated,
+				 free_list->first_node_huge_aligned->range_low,
+				 free_list->first_node_unaligned->range_low);
+		}
 	}
 }
 
@@ -438,7 +454,7 @@ bool pmfs_alloc_superpage(struct super_block *sb,
 
 		/* release curr after updating {first, last}_node */
 		rb_erase(&curr->node, tree);
-		pmfs_free_blocknode(curr);
+		pmfs_free_blocknode(sb, curr);
 		free_list->num_blocknode_huge_aligned--;
 		found = 1;
 	}
@@ -521,7 +537,7 @@ static long pmfs_alloc_blocks_in_free_list(struct super_block *sb,
 
 		/* release curr after updating {first, last}_node */
 		rb_erase(&curr->node, huge_tree);
-		pmfs_free_blocknode(curr);
+		pmfs_free_blocknode(sb, curr);
 		free_list->num_blocknode_huge_aligned--;
 		free_list->num_blocknode_unaligned++;
 		temp = &(free_list->first_node_unaligned->node);
@@ -559,7 +575,7 @@ static long pmfs_alloc_blocks_in_free_list(struct super_block *sb,
 			free_list->num_blocknode_unaligned--;
 			num_blocks = curr_blocks;
 			*new_blocknr = curr->range_low;
-			pmfs_free_blocknode(curr);
+			pmfs_free_blocknode(sb, curr);
 			found = 1;
 			break;
 		}
@@ -755,7 +771,7 @@ static int check_and_insert_huge_aligned(struct super_block *sb,
 
 		rb_erase(&old_node->node, unaligned_tree);
 		free_list->num_blocknode_unaligned--;
-		pmfs_free_blocknode(old_node);
+		pmfs_free_blocknode(sb, old_node);
 	}
 
 	/* For each new huge page, allocate a range_node and insert it in huge_tree */
@@ -903,7 +919,7 @@ int pmfs_free_blocks(struct super_block *sb, unsigned long blocknr,
 			rb_erase(&next->node, tree);
 			free_list->num_blocknode_unaligned--;
 			prev->range_high = next->range_high;
-			pmfs_free_blocknode(next);
+			pmfs_free_blocknode(sb, next);
 			ret = check_and_insert_huge_aligned(sb, tree, huge_tree,
 							    curr_node, prev,
 							    free_list, &new_node_used);
@@ -951,7 +967,7 @@ int pmfs_free_blocks(struct super_block *sb, unsigned long blocknr,
 		spin_unlock(&free_list->s_lock);
 
 		if (new_node_used == 0)
-			pmfs_free_blocknode(curr_node);
+			pmfs_free_blocknode(sb, curr_node);
 
 		num_blocks -= num_blocks_local;
 		blocknr += num_blocks_local;
@@ -961,7 +977,7 @@ int pmfs_free_blocks(struct super_block *sb, unsigned long blocknr,
 	if (ret != 0) {
 		spin_unlock(&free_list->s_lock);
 		if (new_node_used == 0)
-			pmfs_free_blocknode(curr_node);
+			pmfs_free_blocknode(sb, curr_node);
 	}
 
 	return ret;

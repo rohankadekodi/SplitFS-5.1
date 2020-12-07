@@ -136,8 +136,8 @@ static void nova_init_free_list(struct super_block *sb,
 	if (index == sbi->cpus - 1)
 		free_list->block_end -= sbi->tail_reserved_blocks;
 
-	nova_data_csum_init_free_list(sb, free_list);
-	nova_data_parity_init_free_list(sb, free_list);
+	//nova_data_csum_init_free_list(sb, free_list);
+	//nova_data_parity_init_free_list(sb, free_list);
 }
 
 struct nova_range_node *nova_alloc_blocknode(struct super_block *sb)
@@ -160,6 +160,7 @@ void nova_init_blockmap(struct super_block *sb, int recovery)
 	int i;
 	int ret;
 
+	nova_dbg("%s: sbi->num_blocks = %lu\n", __func__, sbi->num_blocks);
 	/* Divide the block range among per-CPU free lists */
 	sbi->per_list_blocks = sbi->num_blocks / sbi->cpus;
 	for (i = 0; i < sbi->cpus; i++) {
@@ -189,7 +190,7 @@ void nova_init_blockmap(struct super_block *sb, int recovery)
 			free_list->num_blocknode = 1;
 		}
 
-		nova_dbgv("%s: free list %d: block start %lu, end %lu, "
+		nova_dbg("%s: free list %d: block start %lu, end %lu, "
 			  "%lu free blocks\n",
 			  __func__, i,
 			  free_list->block_start,

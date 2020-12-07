@@ -446,12 +446,23 @@ int pmfs_journal_soft_init(struct super_block *sb)
 {
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	pmfs_journal_t *journal = pmfs_get_journal(sb, 0);
+	struct pmfs_super_block *super = pmfs_get_super(sb);
 	int i;
+	u64 journal_meta_start;
 
 	atomic64_set(&sbi->next_transaction_id, 0);
 	sbi->jsize = le32_to_cpu(journal->size);
 	sbi->journal_mutex = (struct mutex *)kmalloc(sizeof(struct mutex) * sbi->cpus,
 						     GFP_KERNEL);
+
+	journal_meta_start = sizeof(struct pmfs_super_block);
+	journal_meta_start = (journal_meta_start + CACHELINE_SIZE - 1) &
+		~(CACHELINE_SIZE - 1);
+	super->s_journal_offset = cpu_to_le64(journal_meta_start);
+
+	if (sbi->journal_base_addr == NULL) {
+		sbi->journal_base_addr = (void **) kmalloc(sizeof(void*) * sbi->cpus, GFP_KERNEL);
+	}
 
 	for (i = 0; i < sbi->cpus; i++) {
 		journal = pmfs_get_journal(sb, i);
@@ -902,20 +913,29 @@ static int pmfs_recover_redo_journal(struct super_block *sb)
 int pmfs_recover_journal(struct super_block *sb)
 {
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
-	pmfs_journal_t *journal = pmfs_get_journal(sb, 0);
-	uint32_t tail = le32_to_cpu(journal->tail);
-	uint32_t head = le32_to_cpu(journal->head);
-	uint16_t gen_id = le16_to_cpu(journal->gen_id);
+	int recover_required = 0;
+	pmfs_journal_t *journal;
+	uint32_t tail;
+	uint32_t head;
+	uint16_t gen_id;
+	int i;
 
-	/* is the journal empty? true if unmounted properly. */
-	if (head == tail)
-		return 0;
-	pmfs_dbg("PMFS: journal recovery. head:tail %x:%x gen_id %d\n",
-		head, tail, gen_id);
-	if (sbi->redo_log)
-		pmfs_recover_redo_journal(sb);
-	else
-		pmfs_recover_undo_journal(sb);
+	for (i = 0; i < sbi->cpus; i++) {
+		journal = pmfs_get_journal(sb, i);
+		tail = le32_to_cpu(journal->tail);
+		head = le32_to_cpu(journal->head);
+		gen_id = le16_to_cpu(journal->gen_id);
+		if (head != tail)
+			break;
+	}
+
+	if (i < sbi->cpus) {
+		if (sbi->redo_log)
+			pmfs_recover_redo_journal(sb);
+		else
+			pmfs_recover_undo_journal(sb);
+	}
+
 	return 0;
 }
 

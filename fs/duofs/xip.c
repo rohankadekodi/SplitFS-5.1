@@ -166,6 +166,7 @@ ssize_t pmfs_xip_file_read(struct file *filp, char __user *buf,
 	res = xip_file_read(filp, buf, len, ppos);
 //	rcu_read_unlock();
 	PMFS_END_TIMING(xip_read_t, xip_read_time);
+	pmfs_dbg("%s: returning %d\n", __func__, res);
 	return res;
 }
 
@@ -693,7 +694,7 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 			proc_numa->numa_node = pi->numa_node;
 		}
 
-		sched_setaffinity(current->pid, &(sbi->numa_cpus[pi->numa_node].cpumask));
+		//sched_setaffinity(current->pid, &(sbi->numa_cpus[pi->numa_node].cpumask));
 	}
 
 	if (strong_guarantees && pi->huge_aligned_file && pos < i_size_read(inode)) {
@@ -1132,7 +1133,7 @@ int pmfs_insert_write_vma(struct vm_area_struct *vma)
 			proc_numa->numa_node = pi->numa_node;
 		}
 
-		sched_setaffinity(current->pid, &(sbi->numa_cpus[pi->numa_node].cpumask));
+		//sched_setaffinity(current->pid, &(sbi->numa_cpus[pi->numa_node].cpumask));
 	}
 
 	inode_lock(inode);

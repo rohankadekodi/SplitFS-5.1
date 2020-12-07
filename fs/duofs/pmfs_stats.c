@@ -1,7 +1,7 @@
 #include "pmfs.h"
 #include "inode.h"
 
-const char *Timingstring[TIMING_NUM] = 
+const char *Timingstring[TIMING_NUM] =
 {
 	"create",
 	"new_inode",
@@ -17,7 +17,7 @@ const char *Timingstring[TIMING_NUM] =
 	"readdir",
 	"xip_read",
 	"read_find_blocks",
-	"xip_write",	
+	"xip_write",
 	"xip_write_fast",
 	"allocate_blocks",
 	"internal_write",

@@ -100,8 +100,11 @@ static ino_t pmfs_inode_by_name(struct inode *dir, struct qstr *entry,
 
 	direntry = pmfs_find_dentry(sb, NULL, dir,
 				    entry->name, entry->len);
-	if (direntry == NULL)
+	if (direntry == NULL) {
+		pmfs_dbg("%s: did not find dentry for name = %s\n",
+			 __func__, entry->name);
 		return 0;
+	}
 
 	*res_entry = direntry;
 	return direntry->ino;
@@ -609,7 +612,7 @@ static int pmfs_rename(struct inode *old_dir,
 	new_pidir = pmfs_get_inode(sb, new_dir->i_ino);
 
 	pi = pmfs_get_inode(sb, old_inode->i_ino);
-    old_inode->i_ctime = current_time(old_inode);
+	old_inode->i_ctime = current_time(old_inode);
 	pmfs_add_logentry(sb, trans, pi, MAX_DATA_PER_LENTRY, LE_DATA);
 
 	if (!new_de) {

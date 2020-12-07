@@ -60,7 +60,7 @@ void pmfs_delete_free_lists(struct super_block *sb);
 struct pmfs_range_node *pmfs_alloc_dir_node(struct super_block *sb);
 struct vma_item *pmfs_alloc_vma_item(struct super_block *sb);
 void pmfs_free_range_node(struct pmfs_range_node *node);
-void pmfs_free_inode_node(struct pmfs_range_node *node);
+void pmfs_free_inode_node(struct super_block *sb, struct pmfs_range_node *node);
 void pmfs_free_dir_node(struct pmfs_range_node *bnode);
 void pmfs_free_vma_item(struct super_block *sb,
 			struct vma_item *item);

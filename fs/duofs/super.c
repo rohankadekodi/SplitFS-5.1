@@ -510,13 +510,15 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 
 	/* clear out super-block and inode table */
 	memset_nt(super, 0, journal_data_start);
-	super->s_size = cpu_to_le64(size);
+	super->s_size = cpu_to_le64(size + size_2);
+	super->s_size_1 = cpu_to_le64(size);
+	super->s_size_2 = cpu_to_le64(size_2);
 	super->s_blocksize = cpu_to_le32(blocksize);
 	super->s_magic = cpu_to_le16(PMFS_SUPER_MAGIC);
 	super->s_journal_offset = cpu_to_le64(journal_meta_start[0]);
 	super->s_inode_table_offset = cpu_to_le64(inode_table_start);
 
-	pmfs_init_blockmap(sb, journal_data_start + (sbi->jsize * sbi->cpus));
+	pmfs_init_blockmap(sb, journal_data_start + (sbi->jsize * sbi->cpus), 0);
 	pmfs_memlock_range(sb, super, journal_data_start);
 
 	if (pmfs_journal_hard_init(sb, journal_data_start, sbi->jsize) < 0) {
@@ -960,6 +962,13 @@ setup_sb:
 	sb->s_export_op = &pmfs_export_ops;
 	sb->s_xattr = NULL;
 	sb->s_flags |= SB_NOSEC;
+
+	/* If the FS was not formatted on this mount, scan the meta-data after
+	 * truncate list has been processed
+	 */
+	if ((sbi->s_mount_opt & PMFS_MOUNT_FORMAT) == 0)
+		pmfs_recovery(sb, sbi->initsize, sbi->initsize_2);
+
 	root_i = pmfs_iget(sb, PMFS_ROOT_INO);
 	if (IS_ERR(root_i)) {
 		retval = PTR_ERR(root_i);
@@ -1152,8 +1161,10 @@ void pmfs_free_range_node(struct pmfs_range_node *node)
 	kmem_cache_free(pmfs_range_node_cachep, node);
 }
 
-void pmfs_free_inode_node(struct pmfs_range_node *node)
+void pmfs_free_inode_node(struct super_block *sb, struct pmfs_range_node *node)
 {
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
+	sbi->num_inodenode_allocated--;
 	pmfs_free_range_node(node);
 }
 
@@ -1168,8 +1179,10 @@ void pmfs_free_vma_item(struct super_block *sb,
 	pmfs_free_range_node((struct pmfs_range_node *)item);
 }
 
-void pmfs_free_blocknode(struct pmfs_range_node *node)
+void pmfs_free_blocknode(struct super_block *sb, struct pmfs_range_node *node)
 {
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
+	sbi->num_blocknode_allocated--;
 	pmfs_free_range_node(node);
 }
 
@@ -1211,11 +1224,13 @@ struct pmfs_range_node *pmfs_alloc_range_node(struct super_block *sb)
 
 struct pmfs_range_node *pmfs_alloc_blocknode(struct super_block *sb)
 {
+	PMFS_SB(sb)->num_blocknode_allocated++;
 	return pmfs_alloc_range_node(sb);
 }
 
 struct pmfs_range_node *pmfs_alloc_inode_node(struct super_block *sb)
 {
+	PMFS_SB(sb)->num_inodenode_allocated++;
 	return pmfs_alloc_range_node(sb);
 }
 

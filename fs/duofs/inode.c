@@ -39,6 +39,7 @@ int pmfs_init_inode_inuse_list(struct super_block *sb)
 	int ret;
 
 	sbi->s_inodes_used_count = PMFS_NORMAL_INODE_START;
+	pmfs_dbg("num_used_inodes = %lu\n", sbi->s_inodes_used_count);
 	range_high = PMFS_NORMAL_INODE_START / sbi->cpus;
 	if (PMFS_NORMAL_INODE_START % sbi->cpus)
 		range_high++;
@@ -55,7 +56,7 @@ int pmfs_init_inode_inuse_list(struct super_block *sb)
 		ret = pmfs_insert_inodetree(sbi, range_node, i);
 		if (ret) {
 			pmfs_err(sb, "%s failed\n", __func__);
-			pmfs_free_inode_node(range_node);
+			pmfs_free_inode_node(sb, range_node);
 			return ret;
 		}
 		inode_map->num_range_node_inode = 1;
@@ -1136,7 +1137,7 @@ static int pmfs_read_inode(struct inode *inode, struct pmfs_inode *pi)
 		goto bad_inode;
 	}
 
-	pmfs_init_header(sb, sih, __le16_to_cpu(pi->i_mode));
+	//pmfs_init_header(sb, sih, __le16_to_cpu(pi->i_mode));
 	inode->i_blocks = le64_to_cpu(pi->i_blocks);
 	inode->i_mapping->a_ops = &pmfs_aops_xip;
 
@@ -1213,7 +1214,7 @@ static int pmfs_free_inuse_inode(struct super_block *sb, unsigned long ino)
 	if ((internal_ino == i->range_low) && (internal_ino == i->range_high)) {
 		/* fits entire node */
 		rb_erase(&i->node, &inode_map->inode_inuse_tree);
-		pmfs_free_inode_node(i);
+		pmfs_free_inode_node(sb, i);
 		inode_map->num_range_node_inode--;
 		goto block_found;
 	}
@@ -1242,7 +1243,7 @@ static int pmfs_free_inuse_inode(struct super_block *sb, unsigned long ino)
 
 		ret = pmfs_insert_inodetree(sbi, curr_node, cpuid);
 		if (ret) {
-			pmfs_free_inode_node(curr_node);
+			pmfs_free_inode_node(sb, curr_node);
 			goto err;
 		}
 		inode_map->num_range_node_inode++;
@@ -1342,12 +1343,77 @@ out:
 	return err;
 }
 
+static int pmfs_rebuild_dir_inode_tree(struct super_block *sb,
+	struct pmfs_inode *pi, struct inode *inode,
+	struct pmfs_inode_info_header *sih)
+{
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
+	struct pmfs_dentry *entry = NULL;
+	u64 ino = sih->ino;
+	unsigned long pos = 0;
+	off_t offset = 0;
+	char *blk_base;
+	struct pmfs_direntry *de;
+
+	while (pos < inode->i_size) {
+		unsigned long blk = pos >> sb->s_blocksize_bits;
+		u64 bp = 0;
+		pmfs_find_data_blocks(inode, blk, &bp, 1);
+		blk_base =
+			pmfs_get_block(sb, bp);
+		if (!blk_base) {
+			pmfs_dbg("directory %lu contains a hole at offset %lld\n",
+				inode->i_ino, pos);
+			pos += sb->s_blocksize - offset;
+			continue;
+		}
+
+		while (pos < inode->i_size
+		       && offset < sb->s_blocksize) {
+
+			de = (struct pmfs_direntry *)(blk_base + offset);
+
+			if (!pmfs_check_dir_entry("pmfs_readdir", inode, de,
+						   blk_base, offset)) {
+				/* On error, skip to the next block. */
+				pos = ALIGN(pos, sb->s_blocksize);
+				break;
+			}
+			offset += le16_to_cpu(de->de_len);
+			if (de->ino) {
+				ino = le64_to_cpu(de->ino);
+				pi = pmfs_get_inode(sb, ino);
+				pmfs_insert_dir_tree(inode->i_sb, sih,
+						     de->name,
+						     de->name_len, de);
+			}
+			pos += le16_to_cpu(de->de_len);
+		}
+		offset = 0;
+	}
+	return 0;
+}
+
+/* initialize pmfs inode header and other DRAM data structures */
+static int pmfs_rebuild_inode(struct super_block *sb, struct inode *inode, struct pmfs_inode *pi)
+{
+	struct pmfs_inode_info *si = PMFS_I(inode);
+	struct pmfs_inode_info_header *sih = &si->header;
+
+	pmfs_init_header(sb, sih, __le16_to_cpu(pi->i_mode));
+	sih->ino = inode->i_ino;
+
+	if ((inode->i_mode & S_IFMT) == S_IFDIR) {
+		pmfs_rebuild_dir_inode_tree(sb, pi, inode, sih);
+	}
+	return 0;
+}
+
 struct inode *pmfs_iget(struct super_block *sb, unsigned long ino)
 {
 	struct inode *inode;
 	struct pmfs_inode *pi;
 	int err;
-	struct pmfs_inode_info *si;
 	struct pmfs_inode_info_header *sih = NULL;
 
 
@@ -1368,6 +1434,7 @@ struct inode *pmfs_iget(struct super_block *sb, unsigned long ino)
 		goto fail;
 	inode->i_ino = ino;
 
+	pmfs_rebuild_inode(sb, inode, pi);
 	unlock_new_inode(inode);
 	return inode;
 fail:
@@ -1524,7 +1591,7 @@ static int pmfs_alloc_unused_inode(struct super_block *sb, int cpuid,
 		/* Fill the gap completely */
 		i->range_high = next_i->range_high;
 		rb_erase(&next_i->node, &inode_map->inode_inuse_tree);
-		pmfs_free_inode_node(next_i);
+		pmfs_free_inode_node(sb, next_i);
 		inode_map->num_range_node_inode--;
 	} else if (new_ino < (next_range_low - 1)) {
 		/* Aligns to left */
@@ -1658,6 +1725,7 @@ struct inode *pmfs_new_inode(pmfs_transaction_t *trans, struct inode *dir,
 	pi->height = 0;
 	pi->i_dtime = 0;
 	pi->huge_aligned_file = 0;
+	/*
 	proc_numa = &(sbi->process_numa[current->tgid % sbi->num_parallel_procs]);
 	if (proc_numa->tgid != current->tgid) {
 		proc_numa->tgid = current->tgid;
@@ -1673,6 +1741,7 @@ struct inode *pmfs_new_inode(pmfs_transaction_t *trans, struct inode *dir,
 	}
 
 	pi->numa_node = proc_numa->numa_node;
+	*/
 	pmfs_memlock_inode(sb, pi);
 
 	sbi->s_free_inodes_count -= 1;

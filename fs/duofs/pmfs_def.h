@@ -127,6 +127,8 @@ struct pmfs_super_block {
 	__le16		s_magic;            /* magic signature */
 	__le32		s_blocksize;        /* blocksize in bytes */
 	__le64		s_size;             /* total size of fs in bytes */
+	__le64          s_size_1;
+	__le64          s_size_2;
 	char		s_volume_name[16];  /* volume name */
 	/* points to the location of pmfs_journal_t */
 	__le64          s_journal_offset;
@@ -142,6 +144,7 @@ struct pmfs_super_block {
 	__le32		s_wtime;            /* write time */
 	/* fields for fast mount support. Always keep them together */
 	__le64		s_num_blocknode_allocated;
+	__le64          s_num_inodenode_allocated;
 	__le64		s_num_free_blocks;
 	__le32		s_inodes_count;
 	__le32		s_free_inodes_count;

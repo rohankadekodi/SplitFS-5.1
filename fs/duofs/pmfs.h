@@ -179,9 +179,9 @@ extern int pmfs_mmap(struct file *file, struct vm_area_struct *vma);
 /* balloc.c */
 struct pmfs_range_node *pmfs_alloc_range_node_atomic(struct super_block *sb);
 extern struct pmfs_range_node *pmfs_alloc_blocknode(struct super_block *sb);
-extern void pmfs_free_blocknode(struct pmfs_range_node *node);
+extern void pmfs_free_blocknode(struct super_block *sb, struct pmfs_range_node *node);
 extern void pmfs_init_blockmap(struct super_block *sb,
-		unsigned long init_used_size);
+			       unsigned long init_used_size, int recovery);
 extern int pmfs_free_blocks(struct super_block *sb, unsigned long blocknr, int num,
 	unsigned short btype);
 extern int pmfs_new_blocks(struct super_block *sb, unsigned long *blocknr,
@@ -312,6 +312,7 @@ struct pmfs_sb_info {
 	unsigned int	s_free_inode_hint;
 
 	unsigned long num_blocknode_allocated;
+	unsigned long num_inodenode_allocated;
 
 	unsigned long head_reserved_blocks;
 
@@ -629,6 +630,7 @@ void pmfs_init_header(struct super_block *sb,
 		      struct pmfs_inode_info_header *sih, u16 i_mode);
 void pmfs_save_blocknode_mappings(struct super_block *sb);
 void pmfs_save_inode_list(struct super_block *sb);
+int pmfs_recovery(struct super_block *sb, unsigned long size, unsigned long size_2);
 
 /* namei.c */
 extern const struct inode_operations pmfs_dir_inode_operations;

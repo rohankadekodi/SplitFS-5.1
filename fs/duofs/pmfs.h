@@ -25,6 +25,7 @@
 #include <linux/pfn_t.h>
 #include <linux/iomap.h>
 #include <linux/dax.h>
+#include <linux/kthread.h>
 
 #include "pmfs_def.h"
 #include "journal.h"
@@ -252,6 +253,23 @@ struct pmfs_blocknode_lowhigh {
        __le64 block_high;
 };
 
+enum bm_type {
+	BM_4K = 0,
+	BM_2M,
+	BM_1G,
+};
+
+struct single_scan_bm {
+	unsigned long bitmap_size;
+	unsigned long *bitmap;
+};
+
+struct scan_bitmap {
+	struct single_scan_bm scan_bm_4K;
+	struct single_scan_bm scan_bm_2M;
+	struct single_scan_bm scan_bm_1G;
+};
+
 struct inode_map {
 	struct mutex inode_table_mutex;
 	struct rb_root inode_inuse_tree;
@@ -439,6 +457,16 @@ static inline void *pmfs_get_block(struct super_block *sb, u64 block)
 	struct pmfs_super_block *ps = pmfs_get_super(sb);
 
 	return block ? ((void *)ps + block) : NULL;
+}
+
+static inline int pmfs_get_reference(struct super_block *sb, u64 block,
+	void *dram, void **nvmm, size_t size)
+{
+	int rc;
+
+	*nvmm = pmfs_get_block(sb, block);
+	rc = memcpy_mcsafe(dram, *nvmm, size);
+	return rc;
 }
 
 static inline int pmfs_get_numa_node(struct super_block *sb, int cpuid)

@@ -563,6 +563,7 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	root_i->i_size = cpu_to_le64(sb->s_blocksize);
 	root_i->i_atime = root_i->i_mtime = root_i->i_ctime =
 		cpu_to_le32(get_seconds());
+	root_i->pmfs_ino = cpu_to_le64(PMFS_ROOT_INO);
 	root_i->root = cpu_to_le64(pmfs_get_block_off(sb, blocknr,
 						       PMFS_BLOCK_TYPE_4K));
 	root_i->height = 0;

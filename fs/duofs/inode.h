@@ -33,6 +33,7 @@ struct pmfs_inode {
 	__le32	i_gid;              /* Group Id */
 	__le32	i_generation;       /* File version (for NFS) */
 	__le32	i_atime;            /* Access time */
+	__le64  pmfs_ino;           /* PMFS inode number */
 
 	struct {
 		__le32 rdev;    /* major/minor # */

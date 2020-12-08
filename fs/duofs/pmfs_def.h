@@ -57,6 +57,9 @@
 #define HEAD_RESERVED_BLOCKS 64
 
 #define PMFS_NAME_LEN 255
+
+#define MAX_CPUS 1024
+
 /*
  * Structure of a directory entry in PMFS.
  */

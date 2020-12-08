@@ -101,8 +101,6 @@ static ino_t pmfs_inode_by_name(struct inode *dir, struct qstr *entry,
 	direntry = pmfs_find_dentry(sb, NULL, dir,
 				    entry->name, entry->len);
 	if (direntry == NULL) {
-		pmfs_dbg("%s: did not find dentry for name = %s\n",
-			 __func__, entry->name);
 		return 0;
 	}
 

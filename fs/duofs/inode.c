@@ -1725,6 +1725,7 @@ struct inode *pmfs_new_inode(pmfs_transaction_t *trans, struct inode *dir,
 	pi->height = 0;
 	pi->i_dtime = 0;
 	pi->huge_aligned_file = 0;
+	pi->pmfs_ino = ino;
 	/*
 	proc_numa = &(sbi->process_numa[current->tgid % sbi->num_parallel_procs]);
 	if (proc_numa->tgid != current->tgid) {

@@ -844,69 +844,84 @@ static void pmfs_forward_journal(struct super_block *sb, struct pmfs_sb_info
 static int pmfs_recover_undo_journal(struct super_block *sb)
 {
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
-	pmfs_journal_t *journal = pmfs_get_journal(sb, 0);
-	uint32_t tail = le32_to_cpu(journal->tail);
-	uint32_t head = le32_to_cpu(journal->head);
-	uint16_t gen_id = le16_to_cpu(journal->gen_id);
+	pmfs_journal_t *journal;
+	uint32_t tail;
+	uint32_t head;
+	uint16_t gen_id;
 	pmfs_logentry_t *le;
+	int i;
 
-	while (head != tail) {
-		/* handle journal wraparound */
-		if (tail == 0)
-			gen_id = prev_gen_id(gen_id);
-		tail = prev_log_entry(sbi->jsize, tail);
+	for (i = 0; i < sbi->cpus; i++) {
+		journal = pmfs_get_journal(sb, i);
+		tail = le32_to_cpu(journal->tail);
+		head = le32_to_cpu(journal->head);
+		gen_id = le16_to_cpu(journal->gen_id);
 
-		le = (pmfs_logentry_t *)(sbi->journal_base_addr + tail);
-		if (gen_id == le16_to_cpu(le->gen_id)) {
-			tail = pmfs_recover_transaction(sb, head, tail, le);
-		} else {
-			if (gen_id == MAX_GEN_ID) {
-				pmfs_memunlock_range(sb, le, sizeof(*le));
-				invalidate_gen_id(le);
-				pmfs_memlock_range(sb, le, sizeof(*le));
+		while (head != tail) {
+			/* handle journal wraparound */
+			if (tail == 0)
+				gen_id = prev_gen_id(gen_id);
+			tail = prev_log_entry(sbi->jsize, tail);
+
+			le = (pmfs_logentry_t *)(sbi->journal_base_addr + tail);
+			if (gen_id == le16_to_cpu(le->gen_id)) {
+				tail = pmfs_recover_transaction(sb, head, tail, le);
+			} else {
+				if (gen_id == MAX_GEN_ID) {
+					pmfs_memunlock_range(sb, le, sizeof(*le));
+					invalidate_gen_id(le);
+					pmfs_memlock_range(sb, le, sizeof(*le));
+				}
 			}
 		}
+		pmfs_forward_journal(sb, sbi, journal);
+		PERSISTENT_MARK();
+		PERSISTENT_BARRIER();
 	}
-	pmfs_forward_journal(sb, sbi, journal);
-	PERSISTENT_MARK();
-	PERSISTENT_BARRIER();
 	return 0;
 }
 
 static int pmfs_recover_redo_journal(struct super_block *sb)
 {
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
-	pmfs_journal_t *journal = pmfs_get_journal(sb, 0);
-	uint32_t tail = le32_to_cpu(journal->tail);
-	uint32_t head = le32_to_cpu(journal->head);
-	uint16_t gen_id = le16_to_cpu(journal->gen_id);
+	pmfs_journal_t *journal;
+	uint32_t tail;
+	uint32_t head;
+	uint16_t gen_id;
 	int processed = 0;
 	pmfs_logentry_t *le;
+	int i;
 
-	/* journal wrapped around. so head points to previous generation id */
-	if (tail < head)
-		gen_id = prev_gen_id(gen_id);
+	for (i = 0; i < sbi->cpus; i++) {
+		journal = pmfs_get_journal(sb, i);
+		tail = le32_to_cpu(journal->tail);
+		head = le32_to_cpu(journal->head);
+		gen_id = le16_to_cpu(journal->gen_id);
+		/* journal wrapped around. so head points to previous generation id */
+		if (tail < head)
+			gen_id = prev_gen_id(gen_id);
 
-	while (head != tail) {
-		le = (pmfs_logentry_t *)(sbi->journal_base_addr + head);
-		if (gen_id == le16_to_cpu(le->gen_id)) {
-			head = pmfs_process_transaction(sb, head, tail,
-				le, true, &processed);
-		} else {
-			if (gen_id == MAX_GEN_ID) {
-				pmfs_memunlock_range(sb, le, sizeof(*le));
-				invalidate_gen_id(le);
-				pmfs_memlock_range(sb, le, sizeof(*le));
+		while (head != tail) {
+			le = (pmfs_logentry_t *)(sbi->journal_base_addr + head);
+			if (gen_id == le16_to_cpu(le->gen_id)) {
+				head = pmfs_process_transaction(sb, head, tail,
+								le, true, &processed);
+			} else {
+				if (gen_id == MAX_GEN_ID) {
+					pmfs_memunlock_range(sb, le, sizeof(*le));
+					invalidate_gen_id(le);
+					pmfs_memlock_range(sb, le, sizeof(*le));
+				}
+				head = next_log_entry(sbi->jsize, head);
 			}
-			head = next_log_entry(sbi->jsize, head);
+			/* handle journal wraparound */
+			if (head == 0)
+				gen_id = next_gen_id(gen_id);
 		}
-		/* handle journal wraparound */
-		if (head == 0)
-			gen_id = next_gen_id(gen_id);
+		pmfs_forward_journal(sb, sbi, journal);
+		PERSISTENT_MARK();
+		PERSISTENT_BARRIER();
 	}
-	pmfs_forward_journal(sb, sbi, journal);
-	PERSISTENT_MARK();
-	PERSISTENT_BARRIER();
 	return 0;
 }
 

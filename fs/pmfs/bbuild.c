@@ -259,7 +259,8 @@ static void pmfs_inode_crawl_recursive(struct super_block *sb,
 }
 
 static inline void pmfs_inode_crawl(struct super_block *sb,
-				struct scan_bitmap *bm, struct pmfs_inode *pi)
+				    struct scan_bitmap *bm,
+				    struct pmfs_inode *pi)
 {
 	if (pi->root == 0)
 		return;
@@ -275,7 +276,7 @@ static void pmfs_inode_table_crawl_recursive(struct super_block *sb,
 	unsigned int i;
 	struct pmfs_inode *pi;
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
-	
+
 	node = pmfs_get_block(sb, block);
 
 	if (height == 0) {

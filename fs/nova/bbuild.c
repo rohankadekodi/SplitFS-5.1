@@ -124,6 +124,8 @@ static int nova_failure_insert_inodetree(struct super_block *sb,
 	tree = &inode_map->inode_inuse_tree;
 	mutex_lock(&inode_map->inode_table_mutex);
 
+	nova_dbg("%s: ino %lu - %lu finding free slot\n",
+		 __func__, ino_low, ino_high);
 	ret = nova_find_free_slot(tree, internal_low, internal_high,
 					&prev, &next);
 	if (ret) {
@@ -1300,7 +1302,7 @@ static int failure_thread_func(void *data)
 		 */
 		for (i = 0; i < 512; i++)
 			set_bm((curr >> PAGE_SHIFT) + i,
-					global_bm[cpuid], BM_4K);
+			       global_bm[cpuid], BM_4K);
 
 		if (metadata_csum) {
 			for (i = 0; i < 512; i++)
@@ -1318,6 +1320,9 @@ static int failure_thread_func(void *data)
 				continue;
 			}
 			/* FIXME: Check inode checksum */
+			if (pi->nova_ino == NOVA_ROOT_INO) {
+				nova_dbg("%s: FOUND THE ROOT INODE\n", __func__);
+			}
 			if (fake_pi.i_mode && fake_pi.deleted == 0) {
 				if (fake_pi.valid == 0) {
 					ret = nova_append_inode_to_snapshot(sb,
@@ -1330,6 +1335,7 @@ static int failure_thread_func(void *data)
 					}
 				}
 
+				nova_dbg("%s: fake_pi = %lu\n", __func__, fake_pi.nova_ino);
 				nova_recover_inode_pages(sb, &sih, ring,
 						&fake_pi, global_bm[cpuid]);
 				nova_failure_update_inodetree(sb, pi,
@@ -1497,6 +1503,7 @@ static bool nova_try_normal_recovery(struct super_block *sb)
 	if (pi->log_head == 0 || pi->log_tail == 0)
 		return false;
 
+	return false;
 	ret = nova_init_blockmap_from_inode(sb);
 	if (ret) {
 		nova_err(sb, "init blockmap failed, fall back to failure recovery\n");

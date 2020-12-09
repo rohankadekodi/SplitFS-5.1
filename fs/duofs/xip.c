@@ -57,6 +57,14 @@ do_xip_mapping_read(struct address_space *mapping,
 		int zero = 0;
 		int blocks_found;
 
+		if (index >= end_index) {
+			if (index > end_index)
+				goto out;
+			nr = ((isize - 1) & ~PAGE_MASK) + 1;
+			if (nr <= offset)
+				goto out;
+		}
+
 		PMFS_START_TIMING(read_find_blocks_t, read_find_blocks_time);
 		blocks_found = pmfs_get_xip_mem(mapping, index, num_blocks, 0,
 						&xip_mem, &xip_pfn);
@@ -70,16 +78,7 @@ do_xip_mapping_read(struct address_space *mapping,
 				goto out;
 		}
 
-		if (blocks_found == 0) {
-			nr = PAGE_SIZE;
-			if (index >= end_index) {
-				if (index > end_index)
-					goto out;
-				nr = ((isize - 1) & ~PAGE_MASK) + 1;
-				if (nr <= offset)
-					goto out;
-			}
-		} else {
+		if (blocks_found > 0) {
 			if (index + blocks_found - 1 >= end_index) {
 				if (index > end_index)
 					goto out;

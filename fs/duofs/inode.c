@@ -118,6 +118,7 @@ unsigned long pmfs_find_data_blocks_read(struct inode *inode,
 	unsigned long num_blocks_found = 0;
 	timing_t __pmfs_find_data_blocks_time;
 	timing_t read_get_inode_time;
+	int temp;
 
 	PMFS_START_TIMING(read_get_inode_t, read_get_inode_time);
 	pi = pmfs_get_inode(sb, inode->i_ino);

@@ -19,6 +19,8 @@ const char *Timingstring[TIMING_NUM] =
 	"readdir",
 	"xip_read",
 	"read_find_blocks",
+	"read__pmfs_get_block",
+	"read_pmfs_find_data_blocks",
 	"xip_write",
 	"xip_write_fast",
 	"allocate_blocks",

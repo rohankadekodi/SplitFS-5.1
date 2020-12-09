@@ -835,10 +835,18 @@ static int pmfs_find_and_alloc_blocks(struct inode *inode,
 	pmfs_transaction_t *trans;
 	struct pmfs_inode *pi;
 	int blocks_found = 0;
+	timing_t read_pmfs_find_data_blocks_time;
+
+	if (create == 0) {
+		PMFS_START_TIMING(read_pmfs_find_data_blocks_t, read_pmfs_find_data_blocks_time);
+	}
 
 	blocks_found = pmfs_find_data_blocks(inode,
 					     iblock, &block,
 					     max_blocks);
+	if (create == 0) {
+		PMFS_END_TIMING(read_pmfs_find_data_blocks_t, read_pmfs_find_data_blocks_time);
+	}
 
 	if (blocks_found == 0) {
 		struct super_block *sb = inode->i_sb;
@@ -1017,7 +1025,11 @@ int pmfs_get_xip_mem(struct address_space *mapping, pgoff_t pgoff,
 	int rc;
 	u64 block = 0;
 	struct inode *inode = mapping->host;
+	timing_t read__pmfs_get_block_time;
 
+	if (create == 0) {
+		PMFS_START_TIMING(read__pmfs_get_block_t, read__pmfs_get_block_time);
+	}
 	rc = __pmfs_get_block(inode, pgoff, max_blocks, create, &block);
 	if (rc <= 0) {
 		pmfs_dbg1("[%s:%d] rc(%d), sb->physaddr(0x%llx), block(0x%llx),"
@@ -1025,6 +1037,9 @@ int pmfs_get_xip_mem(struct address_space *mapping, pgoff_t pgoff,
 			__LINE__, rc, PMFS_SB(inode->i_sb)->phys_addr,
 			block, pgoff, create, *pfn);
 		return rc;
+	}
+	if (create == 0) {
+		PMFS_END_TIMING(read__pmfs_get_block_t, read__pmfs_get_block_time);
 	}
 
 	*kmem = pmfs_get_block(inode->i_sb, block);

@@ -68,6 +68,7 @@ do_xip_mapping_read(struct address_space *mapping,
 		if (end_index - index + 1 < num_blocks)
 			num_blocks = (end_index - index + 1);
 
+		num_blocks = 1;
 		PMFS_START_TIMING(read_find_blocks_t, read_find_blocks_time);
 		blocks_found = pmfs_get_xip_mem(mapping, index, num_blocks, 0,
 						&xip_mem, &xip_pfn);

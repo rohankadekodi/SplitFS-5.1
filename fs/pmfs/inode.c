@@ -1268,7 +1268,7 @@ void pmfs_dirty_inode(struct inode *inode, int flags)
 	pmfs_memunlock_inode(sb, pi);
 	pi->i_atime = cpu_to_le32(inode->i_atime.tv_sec);
 	pmfs_memlock_inode(sb, pi);
-	pmfs_flush_buffer(&pi->i_atime, sizeof(pi->i_atime), true);
+	pmfs_flush_buffer(&pi->i_atime, sizeof(pi->i_atime), false);
 
 	/* FIXME: Is this check needed? */
 	if (pmfs_is_inode_dirty(inode, pi))

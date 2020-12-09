@@ -118,6 +118,7 @@ unsigned long pmfs_find_data_blocks_read(struct inode *inode,
 	unsigned long num_blocks_found = 0;
 	timing_t __pmfs_find_data_blocks_time;
 
+	PMFS_START_TIMING(__pmfs_find_data_blocks_t, __pmfs_find_data_blocks_time);
 	/* convert the 4K blocks into the actual blocks the inode is using */
 	blk_shift = data_bits - sb->s_blocksize_bits;
 	blk_offset = file_blocknr & ((1 << blk_shift) - 1);
@@ -128,18 +129,18 @@ unsigned long pmfs_find_data_blocks_read(struct inode *inode,
 		return 0;
 	}
 
-	PMFS_START_TIMING(__pmfs_find_data_blocks_t, __pmfs_find_data_blocks_time);
 	num_blocks_found = __pmfs_find_data_blocks(sb, pi, blocknr,
 						   bp, max_blocks);
-	PMFS_END_TIMING(__pmfs_find_data_blocks_t, __pmfs_find_data_blocks_time);
 	pmfs_dbg_verbose("find_data_block %lx, %x %llx blk_p %p blk_shift %x"
 			 " blk_offset %lx\n", file_blocknr, pi->height, *bp,
 			 pmfs_get_block(sb, *bp), blk_shift, blk_offset);
 
 	if (*bp == 0)
+		PMFS_END_TIMING(__pmfs_find_data_blocks_t, __pmfs_find_data_blocks_time);
 		return 0;
 
 	*bp = *bp + (blk_offset << sb->s_blocksize_bits);
+	PMFS_END_TIMING(__pmfs_find_data_blocks_t, __pmfs_find_data_blocks_time);
 	return num_blocks_found;
 }
 

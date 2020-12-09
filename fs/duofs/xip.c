@@ -188,18 +188,8 @@ static inline size_t memcpy_to_nvmm(char *kmem, loff_t offset,
 {
 	size_t copied;
 
-	if (support_clwb) {
-		copied = bytes - __copy_from_user(kmem + offset, buf, bytes);
-		pmfs_flush_buffer(kmem + offset, copied, 0);
-	} else {
-		copied = bytes - __copy_from_user_inatomic_nocache(kmem +
-						offset, buf, bytes);
-	}
-
-	/*
 	copied = bytes - __copy_from_user_inatomic_nocache(kmem +
 							   offset, buf, bytes);
-	*/
 
 	return copied;
 }
@@ -852,9 +842,15 @@ static int pmfs_find_and_alloc_blocks(struct inode *inode,
 		PMFS_START_TIMING(read_pmfs_find_data_blocks_t, read_pmfs_find_data_blocks_time);
 	}
 
-	blocks_found = pmfs_find_data_blocks(inode,
-					     iblock, &block,
-					     max_blocks);
+	if (create == 0) {
+		blocks_found = pmfs_find_data_blocks_read(inode,
+						     iblock, &block,
+						     max_blocks);
+	} else {
+		blocks_found = pmfs_find_data_blocks(inode,
+						     iblock, &block,
+						     max_blocks);
+	}
 	if (create == 0) {
 		PMFS_END_TIMING(read_pmfs_find_data_blocks_t, read_pmfs_find_data_blocks_time);
 	}

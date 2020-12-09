@@ -129,6 +129,7 @@ enum timing_category {
 	read_find_blocks_t,
 	read__pmfs_get_block_t,
 	read_pmfs_find_data_blocks_t,
+	__pmfs_find_data_blocks_t,
 	xip_write_t,
 	xip_write_fast_t,
 	allocate_blocks_t,

@@ -65,7 +65,7 @@ do_xip_mapping_read(struct address_space *mapping,
 				goto out;
 		}
 
-		if (end_index - index + 1 > num_blocks)
+		if (end_index - index + 1 < num_blocks)
 			num_blocks = (end_index - index + 1);
 
 		PMFS_START_TIMING(read_find_blocks_t, read_find_blocks_time);

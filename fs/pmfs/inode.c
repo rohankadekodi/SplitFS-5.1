@@ -1271,8 +1271,10 @@ void pmfs_dirty_inode(struct inode *inode, int flags)
 	pmfs_flush_buffer(&pi->i_atime, sizeof(pi->i_atime), false);
 
 	/* FIXME: Is this check needed? */
+	/*
 	if (pmfs_is_inode_dirty(inode, pi))
 		printk_ratelimited(KERN_ERR "pmfs: inode was dirty!\n");
+	*/
 }
 
 /*

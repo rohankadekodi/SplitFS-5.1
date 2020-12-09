@@ -917,12 +917,9 @@ static int alloc_bm(struct super_block *sb, unsigned long initsize, unsigned lon
 				((initsize + initsize_2) >> (PAGE_SHIFT_1G + 0x3));
 
 		/* Alloc memory to hold the block alloc bitmap */
-		bm->scan_bm_4K.bitmap = vzalloc(bm->scan_bm_4K.bitmap_size,
-							GFP_KERNEL);
-		bm->scan_bm_2M.bitmap = vzalloc(bm->scan_bm_2M.bitmap_size,
-							GFP_KERNEL);
-		bm->scan_bm_1G.bitmap = vzalloc(bm->scan_bm_1G.bitmap_size,
-							GFP_KERNEL);
+		bm->scan_bm_4K.bitmap = vzalloc(bm->scan_bm_4K.bitmap_size);
+		bm->scan_bm_2M.bitmap = vzalloc(bm->scan_bm_2M.bitmap_size);
+		bm->scan_bm_1G.bitmap = vzalloc(bm->scan_bm_1G.bitmap_size);
 
 		if (!bm->scan_bm_4K.bitmap || !bm->scan_bm_2M.bitmap ||
 				!bm->scan_bm_1G.bitmap)

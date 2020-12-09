@@ -102,6 +102,32 @@ pmfs_get_addr_off(struct pmfs_sb_info *sbi, void *addr)
 	return (u64)(addr - sbi->virt_addr);
 }
 
+
+static inline unsigned long __pmfs_find_data_blocks(struct super_block *sb,
+					  struct pmfs_inode *pi, unsigned long blocknr, u64 *bp, unsigned long max_blocks)
+{
+	__le64 *level_ptr;
+	u32 height, bit_shift;
+	unsigned int idx;
+
+	height = pi->height;
+	*bp = le64_to_cpu(pi->root);
+
+	while (height > 0) {
+		level_ptr = pmfs_get_block(sb, *bp);
+		bit_shift = (height - 1) * META_BLK_SHIFT;
+		idx = blocknr >> bit_shift;
+		*bp = le64_to_cpu(level_ptr[idx]);
+		if (*bp == 0)
+			return 0;
+		blocknr = blocknr & ((1 << bit_shift) - 1);
+		height--;
+	}
+	return 1;
+}
+
+#if 0
+
 static inline unsigned long __pmfs_find_data_blocks(struct super_block *sb,
 						   struct pmfs_inode *pi,
 						   unsigned long blocknr,
@@ -155,6 +181,7 @@ static inline unsigned long __pmfs_find_data_blocks(struct super_block *sb,
 	return num_contiguous_blocks;
 }
 
+#endif
 
 static inline struct inode_table *pmfs_get_inode_table_log(struct super_block *sb,
 	int cpu)

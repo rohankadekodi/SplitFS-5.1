@@ -839,20 +839,17 @@ static int pmfs_find_and_alloc_blocks(struct inode *inode,
 	timing_t read_pmfs_find_data_blocks_time;
 
 	if (create == 0) {
-		PMFS_START_TIMING(read_pmfs_find_data_blocks_t, read_pmfs_find_data_blocks_time);
-	}
-
-	if (create == 0) {
+		PMFS_START_TIMING(read_pmfs_find_data_blocks_t,
+				  read_pmfs_find_data_blocks_time);
 		blocks_found = pmfs_find_data_blocks_read(inode,
 						     iblock, &block,
 						     max_blocks);
+		PMFS_END_TIMING(read_pmfs_find_data_blocks_t,
+				read_pmfs_find_data_blocks_time);
 	} else {
 		blocks_found = pmfs_find_data_blocks(inode,
 						     iblock, &block,
 						     max_blocks);
-	}
-	if (create == 0) {
-		PMFS_END_TIMING(read_pmfs_find_data_blocks_t, read_pmfs_find_data_blocks_time);
 	}
 
 	if (blocks_found == 0) {

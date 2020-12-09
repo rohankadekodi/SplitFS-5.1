@@ -126,6 +126,7 @@ unsigned long pmfs_find_data_blocks_read(struct inode *inode,
 
 	if (blocknr >= (1UL << (pi->height * meta_bits))) {
 		*bp = 0;
+		PMFS_END_TIMING(__pmfs_find_data_blocks_t, __pmfs_find_data_blocks_time);
 		return 0;
 	}
 
@@ -135,9 +136,10 @@ unsigned long pmfs_find_data_blocks_read(struct inode *inode,
 			 " blk_offset %lx\n", file_blocknr, pi->height, *bp,
 			 pmfs_get_block(sb, *bp), blk_shift, blk_offset);
 
-	if (*bp == 0)
+	if (*bp == 0) {
 		PMFS_END_TIMING(__pmfs_find_data_blocks_t, __pmfs_find_data_blocks_time);
 		return 0;
+	}
 
 	*bp = *bp + (blk_offset << sb->s_blocksize_bits);
 	PMFS_END_TIMING(__pmfs_find_data_blocks_t, __pmfs_find_data_blocks_time);

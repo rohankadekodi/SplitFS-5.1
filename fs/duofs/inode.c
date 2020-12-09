@@ -1282,6 +1282,9 @@ static int pmfs_free_inode(struct inode *inode)
 	int err = 0;
 	struct pmfs_inode_info *si;
 	struct pmfs_inode_info_header *sih = NULL;
+	timing_t free_inode_time;
+
+	PMFS_START_TIMING(free_inode_t, free_inode_time);
 
 	//mutex_lock(&PMFS_SB(sb)->inode_table_mutex);
 
@@ -1339,6 +1342,7 @@ out:
 	err = pmfs_free_inuse_inode(sb, inode->i_ino);
 
 	//mutex_unlock(&PMFS_SB(sb)->inode_table_mutex);
+	PMFS_END_TIMING(free_inode_t, free_inode_time);
 
 	return err;
 }

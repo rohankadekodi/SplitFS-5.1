@@ -122,6 +122,8 @@ enum timing_category {
 	unlink_commit_trans_t,
 	truncate_add_t,
 	evict_inode_t,
+	free_tree_t,
+	free_inode_t,
 	readdir_t,
 	xip_read_t,
 	read_find_blocks_t,
@@ -140,7 +142,6 @@ enum timing_category {
 	commit_trans_t,
 	mmap_fault_t,
 	fsync_t,
-	free_tree_t,
 	recovery_t,
 	TIMING_NUM,
 };

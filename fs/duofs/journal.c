@@ -533,6 +533,15 @@ static int pmfs_free_logentries(struct super_block *sb, int max_log_entries, int
 	return LOGENTRY_SIZE * freed_entries;
 }
 
+void synthetic_crash(struct super_block *sb)
+{
+	int i = 0;
+	pmfs_journal_t *journal;
+	uint32_t tail;
+	uint32_t head;
+	
+}
+
 pmfs_transaction_t *pmfs_new_transaction(struct super_block *sb,
 					 int max_log_entries, int cpu)
 {

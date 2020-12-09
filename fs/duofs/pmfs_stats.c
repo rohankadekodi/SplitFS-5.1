@@ -14,6 +14,8 @@ const char *Timingstring[TIMING_NUM] =
 	"unlink_commit_trans",
 	"truncate_add",
 	"evict_inode",
+	"free_tree",
+	"free_inode",
 	"readdir",
 	"xip_read",
 	"read_find_blocks",
@@ -32,7 +34,6 @@ const char *Timingstring[TIMING_NUM] =
 	"commit_trans",
 	"mmap_fault",
 	"fsync",
-	"free_tree",
 	"recovery",
 };
 

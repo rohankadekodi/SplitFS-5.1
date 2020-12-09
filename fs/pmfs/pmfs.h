@@ -116,6 +116,7 @@ enum timing_category {
 	xip_write_fast_t,
 	internal_write_t,
 	memcpy_r_t,
+	get_blocks_read_t,
 	memcpy_w_t,
 	alloc_blocks_t,
 	new_trans_t,

@@ -33,6 +33,7 @@ do_xip_mapping_read(struct address_space *mapping,
 	loff_t isize, pos;
 	size_t copied = 0, error = 0;
 	timing_t memcpy_time;
+	timing_t get_blocks_read_time;
 
 	pos = *ppos;
 	index = pos >> PAGE_SHIFT;
@@ -63,8 +64,10 @@ do_xip_mapping_read(struct address_space *mapping,
 		if (nr > len - copied)
 			nr = len - copied;
 
+		PMFS_START_TIMING(get_blocks_read_t, get_blocks_read_time);
 		error = pmfs_get_xip_mem(mapping, index, 0,
 					&xip_mem, &xip_pfn);
+		PMFS_END_TIMING(get_blocks_read_t, get_blocks_read_time);
 		if (unlikely(error)) {
 			if (error == -ENODATA) {
 				/* sparse */

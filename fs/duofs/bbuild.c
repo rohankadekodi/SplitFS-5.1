@@ -321,6 +321,11 @@ out:
 			curr = container_of(temp, struct pmfs_range_node, node);
 			free_list->first_node_huge_aligned = curr;
 		}
+
+		/*
+		 * pmfs_dbg() causes segfault when uncommented, when first_node is NULL
+		 */
+		/*
 		pmfs_dbg("%s: free list %d: block start %lu, end %lu, "
 			 "%lu free blocks. num_aligned_nodes = %lu, "
 			 "num_unaligned_nodes = %lu, "
@@ -334,6 +339,7 @@ out:
 			 free_list->num_blocknode_unaligned,
 			 free_list->first_node_huge_aligned->range_low,
 			 free_list->first_node_unaligned->range_low);
+		*/
 	}
 	return ret;
 }
@@ -739,6 +745,12 @@ static int __pmfs_build_blocknode_map(struct super_block *sb,
 	unsigned long low = 0;
 	unsigned long start, end;
 	int cpuid = 0;
+	int i = 0;
+
+	for (i = 0; i < sbi->cpus; i++) {
+		free_list = pmfs_get_free_list(sb, i);
+		free_list->num_free_blocks = 0;
+	}
 
 	free_list = pmfs_get_free_list(sb, cpuid);
 	start = free_list->block_start;
@@ -823,8 +835,7 @@ static int pmfs_build_blocknode_map(struct super_block *sb,
 				((initsize + initsize_2) >> (PAGE_SHIFT + 0x3));
 
 	/* Alloc memory to hold the block alloc bitmap */
-	final_bm->scan_bm_4K.bitmap = kzalloc(final_bm->scan_bm_4K.bitmap_size,
-							GFP_KERNEL);
+	final_bm->scan_bm_4K.bitmap = vzalloc(final_bm->scan_bm_4K.bitmap_size);
 
 	if (!final_bm->scan_bm_4K.bitmap) {
 		kfree(final_bm);
@@ -835,6 +846,7 @@ static int pmfs_build_blocknode_map(struct super_block *sb,
 	 * We are using free lists. Set 2M and 1G blocks in 4K map,
 	 * and use 4K map to rebuild block map.
 	 */
+#if 0
 	for (i = 0; i < sbi->cpus; i++) {
 		bm = global_bm[i];
 		pmfs_update_4K_map(sb, bm, bm->scan_bm_2M.bitmap,
@@ -842,6 +854,7 @@ static int pmfs_build_blocknode_map(struct super_block *sb,
 		pmfs_update_4K_map(sb, bm, bm->scan_bm_1G.bitmap,
 			bm->scan_bm_1G.bitmap_size * 8, PAGE_SHIFT_1G - 12);
 	}
+#endif
 
 	/* Merge per-CPU bms to the final single bm */
 	num = final_bm->scan_bm_4K.bitmap_size / sizeof(unsigned long);
@@ -860,7 +873,7 @@ static int pmfs_build_blocknode_map(struct super_block *sb,
 	ret = __pmfs_build_blocknode_map(sb, final_bm->scan_bm_4K.bitmap,
 			final_bm->scan_bm_4K.bitmap_size * 8, PAGE_SHIFT - 12);
 
-	kfree(final_bm->scan_bm_4K.bitmap);
+	vfree(final_bm->scan_bm_4K.bitmap);
 	kfree(final_bm);
 
 	return ret;
@@ -875,9 +888,9 @@ static void free_bm(struct super_block *sb)
 	for (i = 0; i < sbi->cpus; i++) {
 		bm = global_bm[i];
 		if (bm) {
-			kfree(bm->scan_bm_4K.bitmap);
-			kfree(bm->scan_bm_2M.bitmap);
-			kfree(bm->scan_bm_1G.bitmap);
+			vfree(bm->scan_bm_4K.bitmap);
+			vfree(bm->scan_bm_2M.bitmap);
+			vfree(bm->scan_bm_1G.bitmap);
 			kfree(bm);
 		}
 	}
@@ -904,11 +917,11 @@ static int alloc_bm(struct super_block *sb, unsigned long initsize, unsigned lon
 				((initsize + initsize_2) >> (PAGE_SHIFT_1G + 0x3));
 
 		/* Alloc memory to hold the block alloc bitmap */
-		bm->scan_bm_4K.bitmap = kzalloc(bm->scan_bm_4K.bitmap_size,
+		bm->scan_bm_4K.bitmap = vzalloc(bm->scan_bm_4K.bitmap_size,
 							GFP_KERNEL);
-		bm->scan_bm_2M.bitmap = kzalloc(bm->scan_bm_2M.bitmap_size,
+		bm->scan_bm_2M.bitmap = vzalloc(bm->scan_bm_2M.bitmap_size,
 							GFP_KERNEL);
-		bm->scan_bm_1G.bitmap = kzalloc(bm->scan_bm_1G.bitmap_size,
+		bm->scan_bm_1G.bitmap = vzalloc(bm->scan_bm_1G.bitmap_size,
 							GFP_KERNEL);
 
 		if (!bm->scan_bm_4K.bitmap || !bm->scan_bm_2M.bitmap ||
@@ -1150,7 +1163,6 @@ static int failure_thread_func(void *data)
 	ring = &task_rings[cpuid];
 	pmfs_init_header(sb, &sih, 0);
 
-	pmfs_dbg("%s: ring->num = %d\n", __func__, ring->num);
 	for (count = 0; count < ring->num; count++) {
 		curr = ring->addr0[count];
 		curr1 = ring->addr1[count];
@@ -1261,7 +1273,7 @@ static int pmfs_failure_recovery_crawl(struct super_block *sb)
 
 	pmfs_init_header(sb, &sih, 0);
 
-	pmfs_inode_crawl(sb, global_bm[1], pi, ring);
+	pmfs_inode_crawl(sb, global_bm[0], pi, ring);
 	return ret;
 }
 
@@ -1429,6 +1441,9 @@ out:
 
 	if (!value)
 		free_bm(sb);
+
+	if (sbi->s_inodes_used_count < PMFS_NORMAL_INODE_START)
+		sbi->s_inodes_used_count = PMFS_NORMAL_INODE_START;
 
 	pmfs_dbg("num inodes = %lu\n", sbi->s_inodes_used_count -
 		 PMFS_NORMAL_INODE_START);

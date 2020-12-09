@@ -694,7 +694,7 @@ ssize_t pmfs_xip_file_write(struct file *filp, const char __user *buf,
 			proc_numa->numa_node = pi->numa_node;
 		}
 
-		//sched_setaffinity(current->pid, &(sbi->numa_cpus[pi->numa_node].cpumask));
+		sched_setaffinity(current->pid, &(sbi->numa_cpus[pi->numa_node].cpumask));
 	}
 
 	if (strong_guarantees && pi->huge_aligned_file && pos < i_size_read(inode)) {
@@ -1133,7 +1133,7 @@ int pmfs_insert_write_vma(struct vm_area_struct *vma)
 			proc_numa->numa_node = pi->numa_node;
 		}
 
-		//sched_setaffinity(current->pid, &(sbi->numa_cpus[pi->numa_node].cpumask));
+		sched_setaffinity(current->pid, &(sbi->numa_cpus[pi->numa_node].cpumask));
 	}
 
 	inode_lock(inode);

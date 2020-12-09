@@ -110,13 +110,18 @@ unsigned long pmfs_find_data_blocks_read(struct inode *inode,
 				    unsigned long max_blocks)
 {
 	struct super_block *sb = inode->i_sb;
-	struct pmfs_inode *pi = pmfs_get_inode(sb, inode->i_ino);
+	struct pmfs_inode *pi;
 	u32 blk_shift;
 	unsigned long blk_offset, blocknr = file_blocknr;
 	unsigned int data_bits = blk_type_to_shift[pi->i_blk_type];
 	unsigned int meta_bits = META_BLK_SHIFT;
 	unsigned long num_blocks_found = 0;
 	timing_t __pmfs_find_data_blocks_time;
+	timing_t read_get_inode_time;
+
+	PMFS_START_TIMING(read_get_inode_t, read_get_inode_time);
+	pi = pmfs_get_inode(sb, inode->i_ino);
+	PMFS_END_TIMING(read_get_inode_t, read_get_inode_time);
 
 	PMFS_START_TIMING(__pmfs_find_data_blocks_t, __pmfs_find_data_blocks_time);
 	/* convert the 4K blocks into the actual blocks the inode is using */

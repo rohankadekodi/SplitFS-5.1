@@ -111,7 +111,7 @@ static inline unsigned long __pmfs_find_data_blocks(struct super_block *sb,
 	__le64 *level_ptr;
 	u32 height, bit_shift;
 	unsigned int idx, cur_idx;
-	unsigned long num_contiguous_blocks = 0;
+	unsigned long num_contiguous_blocks = 1;
 	u64 cur_bp = 0;
 	u64 local_bp = 0;
 
@@ -150,9 +150,6 @@ static inline unsigned long __pmfs_find_data_blocks(struct super_block *sb,
 	}
 
 	*bp = local_bp;
-
-	if (num_contiguous_blocks == 0)
-		num_contiguous_blocks = 1;
 
 	return num_contiguous_blocks;
 }

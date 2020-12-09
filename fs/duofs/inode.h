@@ -111,7 +111,7 @@ static inline unsigned long __pmfs_find_data_blocks(struct super_block *sb,
 	__le64 *level_ptr;
 	u32 height, bit_shift;
 	unsigned int idx, cur_idx;
-	unsigned long num_contiguous_blocks = 1;
+	unsigned long num_contiguous_blocks = 0;
 	u64 cur_bp = 0;
 	u64 local_bp = 0;
 
@@ -133,6 +133,7 @@ static inline unsigned long __pmfs_find_data_blocks(struct super_block *sb,
 			/* Find the contiguous extent */
 			cur_bp = local_bp;
 			cur_idx = idx;
+			num_contiguous_blocks = 1;
 
 			while (num_contiguous_blocks < max_blocks &&
 			       cur_idx < 512) {

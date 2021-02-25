@@ -103,6 +103,7 @@ pmfs_get_addr_off(struct pmfs_sb_info *sbi, void *addr)
 }
 
 
+#if 0
 static inline unsigned long __pmfs_find_data_blocks(struct super_block *sb,
 					  struct pmfs_inode *pi, unsigned long blocknr, u64 *bp, unsigned long max_blocks)
 {
@@ -125,8 +126,7 @@ static inline unsigned long __pmfs_find_data_blocks(struct super_block *sb,
 	}
 	return 1;
 }
-
-#if 0
+#endif
 
 static inline unsigned long __pmfs_find_data_blocks(struct super_block *sb,
 						   struct pmfs_inode *pi,
@@ -180,8 +180,6 @@ static inline unsigned long __pmfs_find_data_blocks(struct super_block *sb,
 
 	return num_contiguous_blocks;
 }
-
-#endif
 
 static inline struct inode_table *pmfs_get_inode_table_log(struct super_block *sb,
 	int cpu)

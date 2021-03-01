@@ -266,19 +266,19 @@ void pmfs_init_blockmap(struct super_block *sb,
 
 	}
 
-	if (recovery == 0) {
-		if (sbi->num_numa_nodes == 2) {
-			if (sbi->cpus == 96) {
-				for (i = 24, j = 48; i < 48; i++, j++) {
-					swap_free_lists(sb, i, j);
-				}
-			} else if (sbi->cpus == 32) {
-				for (i = 8, j = 16; i < 16; i++, j++) {
-					swap_free_lists(sb, i, j);
-				}
+	if (sbi->num_numa_nodes == 2) {
+		if (sbi->cpus == 96) {
+			for (i = 24, j = 48; i < 48; i++, j++) {
+				swap_free_lists(sb, i, j);
+			}
+		} else if (sbi->cpus == 32) {
+			for (i = 8, j = 16; i < 16; i++, j++) {
+				swap_free_lists(sb, i, j);
 			}
 		}
+	}
 
+	if (recovery == 0) {
 		for (i = 0; i < sbi->cpus; i++) {
 			free_list = pmfs_get_free_list(sb, i);
 			pmfs_dbg("%s: free list %d: block start %lu, end %lu, "
@@ -822,36 +822,7 @@ int pmfs_free_blocks(struct super_block *sb, unsigned long blocknr,
 		return -EINVAL;
 	}
 
-	if (sbi->num_numa_nodes == 2) {
-		if (sbi->cpus == 96 || sbi->cpus == 32) {
-			if (blocknr >= sbi->block_start[1]) {
-				temp_blocknr = blocknr -
-					(sbi->block_start[1] - sbi->block_end[0]);
-				cpuid = temp_blocknr / sbi->per_list_blocks;
-			} else {
-				cpuid = blocknr / sbi->per_list_blocks;
-			}
-		} else {
-			cpuid = blocknr / sbi->per_list_blocks;
-		}
-	} else
-		cpuid = blocknr / sbi->per_list_blocks;
-
-	if (sbi->num_numa_nodes == 2) {
-		if (sbi->cpus == 96) {
-			if (cpuid >= 24 && cpuid < 48) {
-				cpuid += 24;
-			} else if (cpuid >= 48 && cpuid < 72) {
-				cpuid -= 24;
-			}
-		} else if (sbi->cpus == 32) {
-			if (cpuid >= 8 && cpuid < 16) {
-				cpuid += 8;
-			} else if (cpuid >= 16 && cpuid < 24) {
-				cpuid -= 8;
-			}
-		}
-	}
+	cpuid = get_block_cpuid(sbi, blocknr);
 
 	free_list = pmfs_get_free_list(sb, cpuid);
 

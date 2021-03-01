@@ -578,6 +578,40 @@ static inline int pmfs_get_cpuid(struct super_block *sb)
 	return smp_processor_id() % sbi->cpus;
 }
 
+static inline int get_block_cpuid(struct pmfs_sb_info *sbi,
+	unsigned long blocknr)
+{
+	unsigned long temp_blocknr = 0;
+	int cpuid = blocknr / sbi->per_list_blocks;
+
+	if (sbi->num_numa_nodes == 2) {
+		if (sbi->cpus == 96 || sbi->cpus == 32) {
+			if (blocknr >= sbi->block_start[1]) {
+				temp_blocknr = blocknr - (sbi->block_start[1] - sbi->block_end[0]);
+				cpuid = temp_blocknr / sbi->per_list_blocks;
+			}
+		}
+	}
+
+	if (sbi->num_numa_nodes == 2) {
+		if (sbi->cpus == 96) {
+			if (cpuid >= 24 && cpuid < 48) {
+				cpuid += 24;
+			} else if (cpuid >= 48 && cpuid < 72) {
+				cpuid -= 24;
+			}
+		}
+		else if (sbi->cpus == 32) {
+			if (cpuid >= 8 && cpuid < 16) {
+				cpuid += 8;
+			} else if (cpuid >= 16 && cpuid < 24) {
+				cpuid -= 8;
+			}
+		}
+	}
+	return cpuid;
+}
+
 static inline unsigned long
 pmfs_get_numblocks(unsigned short btype)
 {

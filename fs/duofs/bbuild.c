@@ -69,20 +69,6 @@ inline void set_bm(unsigned long bit, struct scan_bitmap *bm,
 	}
 }
 
-static inline int get_block_cpuid(struct pmfs_sb_info *sbi,
-	unsigned long blocknr)
-{
-	int cpuid = blocknr / sbi->per_list_blocks;
-	if (sbi->num_numa_nodes == 2) {
-		if (cpuid >= 24 && cpuid < 48) {
-			cpuid += 24;
-		} else if (cpuid >= 48 && cpuid < 72) {
-			cpuid -= 24;
-		}
-	}
-	return cpuid;
-}
-
 static void pmfs_clear_datablock_inode(struct super_block *sb)
 {
 	struct pmfs_inode *pi =  pmfs_get_inode(sb, PMFS_BLOCKNODE_IN0);
@@ -602,7 +588,7 @@ void pmfs_save_blocknode_mappings(struct super_block *sb)
 		pmfs_range_node_lowhigh) - 1) >> sb->s_blocksize_bits) + 1;
 	*/
 	/* 2 log entry for inode, 2 lentry for super-block */
-	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES + MAX_SB_LENTRIES, 0);
+	trans = pmfs_new_transaction(sb, MAX_INODE_LENTRIES + MAX_METABLOCK_LENTRIES + MAX_SB_LENTRIES, 0);
 	if (IS_ERR(trans))
 		return;
 

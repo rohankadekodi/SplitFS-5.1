@@ -206,7 +206,7 @@ static inline void PERSISTENT_MARK(void)
 	/* TODO: Fix me. */
 }
 
-static inline void PERSISTENT_BARRIER(void)
+static noinline void PERSISTENT_BARRIER(void)
 {
 	asm volatile ("sfence\n" : : );
 	if (support_pcommit) {
@@ -214,7 +214,7 @@ static inline void PERSISTENT_BARRIER(void)
 	}
 }
 
-static inline void pmfs_flush_buffer(void *buf, uint32_t len, bool fence)
+static noinline void pmfs_flush_buffer(void *buf, uint32_t len, bool fence)
 {
 	uint32_t i;
 	len = len + ((unsigned long)(buf) & (CACHELINE_SIZE - 1));

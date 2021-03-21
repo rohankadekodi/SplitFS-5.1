@@ -183,7 +183,7 @@ static inline void pmfs_flush_edge_cachelines(loff_t pos, ssize_t len,
 		pmfs_flush_buffer(start_addr + len, 1, false);
 }
 
-static inline size_t memcpy_to_nvmm(char *kmem, loff_t offset,
+static noinline size_t memcpy_to_nvmm(char *kmem, loff_t offset,
 	const char __user *buf, size_t bytes)
 {
 	size_t copied;

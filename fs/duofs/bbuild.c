@@ -365,6 +365,7 @@ static int pmfs_init_inode_list_from_inode(struct super_block *sb)
 	sbi->num_inodenode_allocated = 0;
 	sbi->s_inodes_used_count = 0;
 
+	pmfs_dbg("%s: total inode nodes = %lu\n", total_inode_nodes);
 	for (block_ctr = 0; block_ctr < pi->i_size / sbi->blocksize; block_ctr++) {
 		__pmfs_find_data_blocks(sb, pi, block_ctr, &curr_p, 1);
 
@@ -656,6 +657,8 @@ void pmfs_save_inode_list(struct super_block *sb)
 	if (num_nodes % RANGENODE_PER_PAGE)
 		num_pages++;
 
+	pmfs_dbg("%s: num inode nodes = %lu. num pages = %lu\n",
+		 __func__, num_nodes, num_pages);
 	/*
 	num_blocks = ((sbi->num_blocknode_allocated * sizeof(struct
 		pmfs_range_node_lowhigh) - 1) >> sb->s_blocksize_bits) + 1;

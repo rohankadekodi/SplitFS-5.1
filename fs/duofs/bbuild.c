@@ -1310,6 +1310,10 @@ static bool pmfs_try_normal_recovery(struct super_block *sb)
 	struct pmfs_super_block *super = pmfs_get_super(sb);
 	int ret;
 
+	if (pi->i_size == 0) {
+		return false;
+	}
+
 	sbi->num_blocknode_allocated =
 		le64_to_cpu(super->s_num_blocknode_allocated);
 	sbi->num_inodenode_allocated =

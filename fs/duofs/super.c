@@ -594,6 +594,7 @@ static struct pmfs_inode *pmfs_init(struct super_block *sb,
 	pmfs_flush_buffer(de, PMFS_DIR_REC_LEN(2), false);
 	PERSISTENT_MARK();
 	PERSISTENT_BARRIER();
+
 	return root_i;
 }
 
@@ -927,6 +928,7 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 		printk(KERN_ERR "Journal initialization failed\n");
 		goto out;
 	}
+
 	if (pmfs_recover_journal(sb)) {
 		retval = -EINVAL;
 		printk(KERN_ERR "Journal recovery failed\n");

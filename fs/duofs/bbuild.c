@@ -585,7 +585,7 @@ void pmfs_save_blocknode_mappings(struct super_block *sb)
 	if (num_blocknode % RANGENODE_PER_PAGE)
 		num_pages++;
 
-	pmfs_dbg("%s: num blocknodes to save = %lu. num pages = %lu\n",
+	pmfs_dbg_verbose("%s: num blocknodes to save = %lu. num pages = %lu\n",
 		 __func__, num_blocknode, num_pages);
 
 	/*
@@ -661,7 +661,7 @@ void pmfs_save_inode_list(struct super_block *sb)
 	if (num_nodes % RANGENODE_PER_PAGE)
 		num_pages++;
 
-	pmfs_dbg("%s: num inode nodes = %lu. num pages = %lu\n",
+	pmfs_dbg_verbose("%s: num inode nodes = %lu. num pages = %lu\n",
 		 __func__, num_nodes, num_pages);
 	/*
 	num_blocks = ((sbi->num_blocknode_allocated * sizeof(struct
@@ -1401,8 +1401,6 @@ int pmfs_recovery(struct super_block *sb, size_t size, size_t size_2)
 	if (sbi->blocksize && sbi->blocksize != blocksize)
 		sbi->blocksize = blocksize;
 
-	pmfs_dbg("%s\n", __func__);
-
 	/* Always check recovery time */
 	if (measure_timing == 0)
 		getrawmonotonic(&start);
@@ -1443,7 +1441,5 @@ out:
 	if (sbi->s_inodes_used_count < PMFS_NORMAL_INODE_START)
 		sbi->s_inodes_used_count = PMFS_NORMAL_INODE_START;
 
-	pmfs_dbg("num inodes = %lu\n", sbi->s_inodes_used_count -
-		 PMFS_NORMAL_INODE_START);
 	return ret;
 }

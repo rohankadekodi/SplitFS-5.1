@@ -748,7 +748,6 @@ int pmfs_add_logentry(struct super_block *sb,
 		/* Atomically make the log entry valid */
 		le->gen_id = cpu_to_le16(trans->gen_id);
 		pmfs_flush_buffer(le, LOGENTRY_SIZE, false);
-
 		addr += le_size;
 		le_start += le_size;
 		le++;
@@ -872,7 +871,7 @@ static int pmfs_recover_undo_journal(struct super_block *sb)
 				gen_id = prev_gen_id(gen_id);
 			tail = prev_log_entry(sbi->jsize, tail);
 
-			le = (pmfs_logentry_t *)(sbi->journal_base_addr + tail);
+			le = (pmfs_logentry_t *)(sbi->journal_base_addr[i] + tail);
 			if (gen_id == le16_to_cpu(le->gen_id)) {
 				tail = pmfs_recover_transaction(sb, head, tail, le);
 			} else {

@@ -122,9 +122,8 @@ static struct dentry *pmfs_lookup(struct inode *dir, struct dentry *dentry,
 	if (ino) {
 		inode = pmfs_iget(dir->i_sb, ino);
 		if (inode == ERR_PTR(-ESTALE)) {
-			pmfs_err(dir->i_sb, __func__,
-				  "deleted inode referenced: %lu",
-				  (unsigned long)ino);
+			pmfs_err(dir->i_sb, "%s: deleted inode referenced: %lu",
+				  __func__, (unsigned long)ino);
 			return ERR_PTR(-EIO);
 		}
 	}

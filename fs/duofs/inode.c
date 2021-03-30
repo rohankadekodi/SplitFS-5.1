@@ -1436,6 +1436,8 @@ static int pmfs_rebuild_dir_inode_tree(struct super_block *sb,
 				pos = ALIGN(pos, sb->s_blocksize);
 				break;
 			}
+
+			sih->last_dentry = de;			
 			offset += le16_to_cpu(de->de_len);
 			if (de->ino) {
 				ino = le64_to_cpu(de->ino);

@@ -35,8 +35,9 @@
 #include <linux/dax.h>
 #include "pmfs.h"
 #include "inode.h"
+#include "xattr.h"
 
-int measure_timing = 1;
+int measure_timing = 0;
 int support_clwb = 0;
 int support_pcommit = 0;
 
@@ -959,12 +960,13 @@ static int pmfs_fill_super(struct super_block *sb, void *data, int silent)
 
 	/* Set it all up.. */
 setup_sb:
+	set_opt(sbi->s_mount_opt, XATTR_USER);
 	sb->s_magic = le16_to_cpu(super->s_magic);
 	sb->s_op = &pmfs_sops;
 	sb->s_maxbytes = pmfs_max_size(sb->s_blocksize_bits);
 	sb->s_time_gran = 1;
 	sb->s_export_op = &pmfs_export_ops;
-	sb->s_xattr = NULL;
+	sb->s_xattr = pmfs_xattr_handlers;
 	sb->s_flags |= SB_NOSEC;
 
 	/* If the FS was not formatted on this mount, scan the meta-data after

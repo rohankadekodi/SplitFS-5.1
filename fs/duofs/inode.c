@@ -2187,8 +2187,10 @@ void pmfs_set_inode_flags(struct inode *inode, struct pmfs_inode *pi)
 		inode->i_flags |= S_NOATIME;
 	if (flags & FS_DIRSYNC_FL)
 		inode->i_flags |= S_DIRSYNC;
+	/*
 	if (!pi->i_xattr)
 		inode_has_no_xattr(inode);
+	*/
 	inode->i_flags |= S_DAX;
 }
 

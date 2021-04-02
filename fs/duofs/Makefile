@@ -4,7 +4,7 @@
 
 obj-$(CONFIG_DUOFS) += duofs.o
 
-duofs-y := bbuild.o balloc.o dir.o file.o inode.o namei.o super.o symlink.o ioctl.o pmfs_stats.o journal.o xip.o wprotect.o
+duofs-y := bbuild.o balloc.o dir.o file.o inode.o namei.o super.o symlink.o ioctl.o pmfs_stats.o journal.o xattr.o xattr_user.o xip.o wprotect.o
 
 #CFLAGS_nvmm_perfmodel.o := -mhard-float -Og
 #CFLAGS_bbuild.o := -mhard-float -Og

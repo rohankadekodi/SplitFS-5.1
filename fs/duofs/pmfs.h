@@ -516,7 +516,7 @@ static inline void pmfs_memcpy_atomic (void *dst, const void *src, u8 size)
 }
 
 /* assumes the length to be 4-byte aligned */
-static noinline void memset_nt(void *dest, uint32_t dword, size_t length)
+static inline void memset_nt(void *dest, uint32_t dword, size_t length)
 {
 	uint64_t dummy1, dummy2;
 	uint64_t qword = ((uint64_t)dword << 32) | dword;

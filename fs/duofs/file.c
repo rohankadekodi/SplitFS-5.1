@@ -24,6 +24,7 @@
 #include "pmfs.h"
 #include "xip.h"
 #include "inode.h"
+#include "xattr.h"
 
 static inline int pmfs_can_set_blocksize_hint(struct pmfs_inode *pi,
 					       loff_t new_size)
@@ -358,5 +359,6 @@ const struct file_operations pmfs_xip_file_operations = {
 const struct inode_operations pmfs_file_inode_operations = {
 	.setattr	= pmfs_notify_change,
 	.getattr	= pmfs_getattr,
+	.listxattr      = pmfs_listxattr,
 	.get_acl	= NULL,
 };

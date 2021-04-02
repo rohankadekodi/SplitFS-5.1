@@ -1786,7 +1786,6 @@ struct inode *pmfs_new_inode(pmfs_transaction_t *trans, struct inode *dir,
 	pi->huge_aligned_file = 0;
 	pi->pmfs_ino = ino;
 
-	/*
 	proc_numa = &(sbi->process_numa[current->tgid % sbi->num_parallel_procs]);
 	if (proc_numa->tgid != current->tgid) {
 		proc_numa->tgid = current->tgid;
@@ -1802,7 +1801,6 @@ struct inode *pmfs_new_inode(pmfs_transaction_t *trans, struct inode *dir,
 	}
 
 	pi->numa_node = proc_numa->numa_node;
-	*/
 	pmfs_memlock_inode(sb, pi);
 
 	sbi->s_free_inodes_count -= 1;

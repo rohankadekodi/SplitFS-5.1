@@ -115,7 +115,8 @@ int nova_insert_inodetree(struct nova_sb_info *sbi,
 int nova_find_free_slot(struct rb_root *tree, unsigned long range_low,
 	unsigned long range_high, struct nova_range_node **prev,
 	struct nova_range_node **next);
-
+int nova_get_free_superpages(struct super_block *sb,
+			     struct free_list *free_list);
 extern int nova_insert_range_node(struct rb_root *tree,
 	struct nova_range_node *new_node, enum node_type type);
 extern int nova_find_range_node(struct rb_root *tree,

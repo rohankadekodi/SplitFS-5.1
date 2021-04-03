@@ -156,6 +156,10 @@ setversion_out:
 		nova_print_free_lists(sb);
 		return 0;
 	}
+	case NOVA_GET_HUGEPAGES: {
+		nova_print_free_hugepages(sb);
+		return 0;
+	}
 	default:
 		return -ENOTTY;
 	}

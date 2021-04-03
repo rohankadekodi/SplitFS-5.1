@@ -693,3 +693,22 @@ void nova_print_free_lists(struct super_block *sb)
 			 free_list->freed_data_pages);
 	}
 }
+
+void nova_print_free_hugepages(struct super_block *sb)
+{
+	struct nova_sb_info *sbi = NOVA_SB(sb);
+	struct free_list *free_list;
+	int i;
+	unsigned long total_free_hugepages = 0;
+	unsigned long total_free_blocks = 0;
+
+	for (i = 0; i < sbi->cpus; i++) {
+		free_list = nova_get_free_list(sb, i);
+		total_free_hugepages += nova_get_free_superpages(sb, free_list);
+		total_free_blocks += free_list->num_free_blocks;
+	}
+	nova_dbg("Total free hugepages = %lu. Total free blocks = %lu. "
+		 "Possible free hugepages = %lu\n",
+		 total_free_hugepages, total_free_blocks,
+		 total_free_blocks ? total_free_blocks / 512 : 0);
+}

@@ -128,11 +128,11 @@ extern unsigned int nova_dbgmask;
 /* IOCTLs */
 #define	NOVA_PRINT_TIMING		0xBCD00010
 #define	NOVA_CLEAR_STATS		0xBCD00011
+#define NOVA_GET_HUGEPAGES              0xBCD00012
 #define	NOVA_PRINT_LOG			0xBCD00013
 #define	NOVA_PRINT_LOG_BLOCKNODE	0xBCD00014
 #define	NOVA_PRINT_LOG_PAGES		0xBCD00015
 #define	NOVA_PRINT_FREE_LISTS		0xBCD00018
-
 
 #define	READDIR_END			(ULONG_MAX)
 #define	INVALID_CPU			(-1)
@@ -1142,6 +1142,7 @@ void nova_print_inode_log(struct super_block *sb, struct inode *inode);
 void nova_print_inode_log_pages(struct super_block *sb, struct inode *inode);
 int nova_check_inode_logs(struct super_block *sb, struct nova_inode *pi);
 void nova_print_free_lists(struct super_block *sb);
+void nova_print_free_hugepages(struct super_block *sb);
 
 /* perf.c */
 int nova_test_perf(struct super_block *sb, unsigned int func_id,

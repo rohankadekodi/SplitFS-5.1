@@ -587,7 +587,7 @@ struct nova_range_node *nova_alloc_blocknode_atomic(struct super_block *sb)
 #define IS_DATABLOCKS_2MB_ALIGNED(numblocks, atype) \
 		(!(num_blocks & PAGES_PER_2MB_MASK) && (atype == DATA))
 
-bool nova_alloc_superpage(struct super_block *sb,
+static long nova_alloc_superpage(struct super_block *sb,
 	struct free_list *free_list, unsigned long num_blocks,
 	unsigned long *new_blocknr, enum nova_alloc_direction from_tail)
 {
@@ -619,6 +619,11 @@ bool nova_alloc_superpage(struct super_block *sb,
 		curr_blocks = curr->range_high - curr->range_low + 1;
 		left_margin = PAGES_PER_2MB -
 			(curr->range_low & PAGES_PER_2MB_MASK);
+
+		if (num_blocks > (curr_blocks - left_margin)) {
+			if (((curr_blocks - left_margin) & ~PAGES_PER_2MB_MASK) > 0)
+				num_blocks = (curr_blocks - left_margin) & ~PAGES_PER_2MB_MASK;
+		}
 
 		/*
 		 * Guard against cases where:
@@ -708,8 +713,46 @@ next:
 	}
 
 	NOVA_STATS_ADD(alloc_steps, step);
-	return found;
+	return found ? num_blocks : 0;
 }
+
+int nova_get_free_superpages(struct super_block *sb,
+			struct free_list *free_list)
+{
+	struct rb_root *tree;
+	struct rb_node *temp;
+	struct nova_range_node *curr;
+	unsigned long curr_blocks;
+	bool found = 0;
+	unsigned long step = 0;
+	int ret_blocks = 0;
+	int num_blocks = 0;
+
+	unsigned int left_margin;
+	unsigned int right_margin;
+
+	tree = &(free_list->block_free_tree);
+	temp = &(free_list->first_node->node);
+	while (temp) {
+		step++;
+		curr = container_of(temp, struct nova_range_node, node);
+
+		curr_blocks = curr->range_high - curr->range_low + 1;
+		left_margin = PAGES_PER_2MB -
+			(curr->range_low & PAGES_PER_2MB_MASK);
+
+
+		if (((curr_blocks - left_margin) & ~PAGES_PER_2MB_MASK) > 0) {
+			num_blocks += (curr_blocks - left_margin) & ~PAGES_PER_2MB_MASK;
+		}
+next:
+		temp = rb_next(temp);
+	}
+
+	ret_blocks = num_blocks / PAGES_PER_2MB;
+	return ret_blocks;
+}
+
 
 /* Return how many blocks allocated */
 static long nova_alloc_blocks_in_free_list(struct super_block *sb,
@@ -721,6 +764,7 @@ static long nova_alloc_blocks_in_free_list(struct super_block *sb,
 	struct nova_range_node *curr, *next = NULL, *prev = NULL;
 	struct rb_node *temp, *next_node, *prev_node;
 	unsigned long curr_blocks;
+	long ret_blocks = 0;
 	bool found = 0;
 	bool found_hugeblock = 0;
 	unsigned long step = 0;
@@ -747,10 +791,13 @@ static long nova_alloc_blocks_in_free_list(struct super_block *sb,
 
 	/* Try huge block allocation for data blocks first */
 	if (IS_DATABLOCKS_2MB_ALIGNED(num_blocks, atype)) {
-		found_hugeblock = nova_alloc_superpage(sb, free_list,
-					num_blocks, new_blocknr, from_tail);
-		if (found_hugeblock)
+		ret_blocks = nova_alloc_superpage(sb, free_list,
+						  num_blocks, new_blocknr, from_tail);
+		if (ret_blocks > 0 && *new_blocknr != 0) {
+			num_blocks = ret_blocks;
+			found_hugeblock = 1;
 			goto success;
+		}
 	}
 
 	/* fallback to un-aglined allocation then */

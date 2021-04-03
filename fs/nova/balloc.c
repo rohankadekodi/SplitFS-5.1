@@ -742,8 +742,10 @@ int nova_get_free_superpages(struct super_block *sb,
 			(curr->range_low & PAGES_PER_2MB_MASK);
 
 
-		if (((curr_blocks - left_margin) & ~PAGES_PER_2MB_MASK) > 0) {
-			num_blocks += (curr_blocks - left_margin) & ~PAGES_PER_2MB_MASK;
+		if (curr_blocks > left_margin) {
+			if (((curr_blocks - left_margin) & ~PAGES_PER_2MB_MASK) > 0) {
+				num_blocks += (curr_blocks - left_margin) & ~PAGES_PER_2MB_MASK;
+			}
 		}
 next:
 		temp = rb_next(temp);

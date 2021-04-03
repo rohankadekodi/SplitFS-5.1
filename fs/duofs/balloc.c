@@ -21,6 +21,7 @@
 
 #include <linux/fs.h>
 #include <linux/bitops.h>
+#include <linux/random.h>
 #include "pmfs.h"
 #include "inode.h"
 
@@ -154,6 +155,7 @@ void pmfs_init_blockmap(struct super_block *sb,
 	unsigned long aligned_start, unaligned_start;
 	unsigned long aligned_end, unaligned_end;
 
+	sbi->num_hole_blocks = 0;
 	num_used_block = (init_used_size + sb->s_blocksize - 1) >>
 		sb->s_blocksize_bits;
 
@@ -264,6 +266,8 @@ void pmfs_init_blockmap(struct super_block *sb,
 			}
 		}
 
+		sbi->num_hole_blocks += (free_list->num_free_blocks -
+					 (free_list->num_blocknode_huge_aligned*PAGES_PER_2MB));
 	}
 
 	if (sbi->num_numa_nodes == 2) {
@@ -606,6 +610,7 @@ success:
 		return -ENOSPC;
 	}
 
+	
 	return num_blocks;
 }
 
@@ -935,6 +940,12 @@ int pmfs_free_blocks(struct super_block *sb, unsigned long blocknr,
 
 	block_found:
 		free_list->num_free_blocks += num_blocks_local;
+
+		if (sbi->hole_free_list == NULL || (free_list->num_free_blocks - (free_list->num_blocknode_huge_aligned*PAGES_PER_2MB) >
+						    sbi->hole_free_list->num_free_blocks - (sbi->hole_free_list->num_blocknode_huge_aligned*PAGES_PER_2MB))) {
+			sbi->hole_free_list = free_list;
+		}
+
 		spin_unlock(&free_list->s_lock);
 
 		if (new_node_used == 0)
@@ -952,6 +963,27 @@ int pmfs_free_blocks(struct super_block *sb, unsigned long blocknr,
 	}
 
 	return ret;
+}
+
+static int not_enough_holes(struct free_list *free_list,
+			    unsigned long num_blocks)
+{
+	struct pmfs_range_node *first_unaligned = free_list->first_node_unaligned;
+	struct pmfs_range_node *first_huge_aligned = free_list->first_node_huge_aligned;
+
+	unsigned long num_hole_blocks = free_list->num_free_blocks - (free_list->num_blocknode_huge_aligned*PAGES_PER_2MB);
+	if (num_hole_blocks < num_blocks ||
+	    !first_unaligned) {
+		pmfs_dbg_verbose("%s: num_free_blocks=%ld; num_blocks=%ld; "
+				 "first_unaligned=0x%p; "
+				 "first_aligned=0x%p\n",
+				 __func__, free_list->num_free_blocks, num_blocks,
+				 first_unaligned,
+				 first_huge_aligned);
+		return 1;
+	}
+
+	return 0;
 }
 
 static int not_enough_blocks(struct free_list *free_list,
@@ -1019,6 +1051,59 @@ static int pmfs_get_candidate_free_list(struct super_block *sb)
 	return cpuid;
 }
 
+/* Find out the free list with most holes */
+static int pmfs_get_candidate_hole_free_list(struct super_block *sb, unsigned long num_blocks)
+{
+	struct pmfs_sb_info *sbi = PMFS_SB(sb);
+	struct free_list *free_list;
+	int cpuid = 0;
+	int num_free_blocks = 0;
+	int i;
+	int numa_node;
+	int flag = 0;
+	u32 candidates[3];
+	int best_candidate = 0;
+	struct numa_node_cpus *numa_cpus;
+	unsigned long num_hole_blocks = 0;
+	unsigned long max_hole_blocks = 0;
+
+	if (sbi->num_numa_nodes == 1) {
+		if (sbi->hole_free_list == NULL) {
+			for (i = 0; i < sbi->cpus; i++) {
+				free_list = pmfs_get_free_list(sb, i);
+				num_hole_blocks = free_list->num_free_blocks -
+					(free_list->num_blocknode_huge_aligned*PAGES_PER_2MB);
+				if (num_hole_blocks > max_hole_blocks) {
+					max_hole_blocks = num_hole_blocks;
+					cpuid = i;
+				}
+			}
+			sbi->hole_free_list = pmfs_get_free_list(sb, cpuid);
+		} else if (sbi->hole_free_list->num_free_blocks -
+			   (sbi->hole_free_list->num_blocknode_huge_aligned*PAGES_PER_2MB) < num_blocks) {
+			for (i = 0; i < 3; i++) {
+				get_random_bytes(&candidates[i], sizeof(u32));
+				candidates[i] = candidates[i] % sbi->cpus;
+				free_list = pmfs_get_free_list(sb, candidates[i]);
+				if (free_list->num_free_blocks -
+				    free_list->num_blocknode_huge_aligned*PAGES_PER_2MB >= num_blocks) {
+					cpuid = candidates[i];
+					sbi->hole_free_list = free_list;
+					break;
+				}
+			}
+			if (i == 3) {
+				cpuid = pmfs_get_cpuid(sb);
+			}
+		} else {
+			cpuid = sbi->hole_free_list->index;
+		}
+	}
+ out:
+	return cpuid;
+}
+
+
 int pmfs_new_blocks(struct super_block *sb, unsigned long *blocknr,
 		    unsigned int num, unsigned short btype, int zero, int cpuid)
 {
@@ -1039,9 +1124,20 @@ int pmfs_new_blocks(struct super_block *sb, unsigned long *blocknr,
 	if (cpuid == ANY_CPU)
 		cpuid = pmfs_get_cpuid(sb);
 
-retry:
-	free_list = pmfs_get_free_list(sb, cpuid);
+	if (!IS_DATABLOCKS_2MB_ALIGNED(num_blocks)) {
+		free_list = pmfs_get_free_list(sb, cpuid);
+		spin_lock(&free_list->s_lock);
+		if (not_enough_holes(free_list, num_blocks)) {
+			spin_unlock(&free_list->s_lock);
+			cpuid = pmfs_get_candidate_hole_free_list(sb, num_blocks);
+		} else {
+			goto alloc;
+		}
+	}
 
+ retry:
+
+	free_list = pmfs_get_free_list(sb, cpuid);
 	spin_lock(&free_list->s_lock);
 
 	if (not_enough_blocks(free_list, num_blocks)) {

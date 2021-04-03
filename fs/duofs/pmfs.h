@@ -304,7 +304,6 @@ struct pmfs_sb_info {
 	unsigned long	num_free_blocks;
 	struct mutex 	s_lock;	/* protects the SB's buffer-head */
 	unsigned long   num_blocks;
-	unsigned long   num_hole_blocks;
 	struct free_list *hole_free_list;
 
 	int cpus;

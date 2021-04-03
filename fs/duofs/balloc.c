@@ -155,7 +155,6 @@ void pmfs_init_blockmap(struct super_block *sb,
 	unsigned long aligned_start, unaligned_start;
 	unsigned long aligned_end, unaligned_end;
 
-	sbi->num_hole_blocks = 0;
 	num_used_block = (init_used_size + sb->s_blocksize - 1) >>
 		sb->s_blocksize_bits;
 
@@ -265,9 +264,6 @@ void pmfs_init_blockmap(struct super_block *sb,
 				return;
 			}
 		}
-
-		sbi->num_hole_blocks += (free_list->num_free_blocks -
-					 (free_list->num_blocknode_huge_aligned*PAGES_PER_2MB));
 	}
 
 	if (sbi->num_numa_nodes == 2) {

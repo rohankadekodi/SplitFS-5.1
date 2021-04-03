@@ -26,7 +26,6 @@ pmfs_xattr_user_set(const struct xattr_handler *handler,
 		    const char *name, const void *value,
 		    size_t size, int flags)
 {
-	pmfs_dbg("%s: start\n", __func__);
 	if (!test_opt(inode->i_sb, XATTR_USER))
 		return -EOPNOTSUPP;
 	return pmfs_xattr_set(inode,

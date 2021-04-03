@@ -390,6 +390,9 @@ extern unsigned long pmfs_find_data_blocks_read(struct inode *inode,
 				 unsigned long file_blocknr,
 				 u64 *bp,
 				 unsigned long max_blocks);
+
+int pmfs_get_ratio_hugepage_files_in_dir(struct super_block *sb,
+					 struct inode *inode);
 int pmfs_set_blocksize_hint(struct super_block *sb, struct pmfs_inode *pi,
 		loff_t new_size);
 void pmfs_setsize(struct inode *inode, loff_t newsize);

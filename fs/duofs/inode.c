@@ -1437,7 +1437,7 @@ static int pmfs_rebuild_dir_inode_tree(struct super_block *sb,
 				break;
 			}
 
-			sih->last_dentry = de;			
+			sih->last_dentry = de;
 			offset += le16_to_cpu(de->de_len);
 			if (de->ino) {
 				ino = le64_to_cpu(de->ino);
@@ -1452,6 +1452,68 @@ static int pmfs_rebuild_dir_inode_tree(struct super_block *sb,
 	}
 	return 0;
 }
+
+
+int pmfs_get_ratio_hugepage_files_in_dir(struct super_block *sb,
+					 struct inode *inode)
+{
+	char *blk_base;
+	struct pmfs_inode *pi;
+	unsigned long offset;
+	struct pmfs_direntry *de;
+	ino_t ino;
+	struct pmfs_inode_info *si = PMFS_I(inode);
+	struct pmfs_inode_info_header *sih = &(si->header);
+	off_t pos = 0;
+	int num_files = 0;
+	int hugepage_files = 0;
+
+	offset = 0;
+	while (pos < inode->i_size) {
+		unsigned long blk = pos >> sb->s_blocksize_bits;
+		u64 bp = 0;
+		pmfs_find_data_blocks(inode, blk, &bp, 1);
+		blk_base =
+			pmfs_get_block(sb, bp);
+		if (!blk_base) {
+			pmfs_dbg("directory %lu contains a hole at offset %lld\n",
+				inode->i_ino, pos);
+			pos += sb->s_blocksize - offset;
+			continue;
+		}
+
+		while (pos < inode->i_size
+		       && offset < sb->s_blocksize) {
+
+			de = (struct pmfs_direntry *)(blk_base + offset);
+
+			if (!pmfs_check_dir_entry("pmfs_readdir", inode, de,
+						   blk_base, offset)) {
+				/* On error, skip to the next block. */
+				pos = ALIGN(pos, sb->s_blocksize);
+				break;
+			}
+			offset += le16_to_cpu(de->de_len);
+			if (de->ino) {
+				ino = le64_to_cpu(de->ino);
+				pi = pmfs_get_inode(sb, ino);
+				num_files += 1;
+				if (pi->huge_aligned_file)
+					hugepage_files += 1;
+			}
+			pos += le16_to_cpu(de->de_len);
+		}
+		offset = 0;
+	}
+	pmfs_dbg_verbose("%s: num_files = %d, hugepage_files = %d\n",
+		 __func__, num_files, hugepage_files);
+
+	if ((num_files-2) == 0)
+		return 0;
+
+	return (int) (hugepage_files / (num_files-2));
+}
+
 
 /* initialize pmfs inode header and other DRAM data structures */
 static int pmfs_rebuild_inode(struct super_block *sb, struct inode *inode, struct pmfs_inode *pi)

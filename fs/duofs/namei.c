@@ -16,6 +16,7 @@
 #include <linux/pagemap.h>
 #include "pmfs.h"
 #include "xip.h"
+#include "xattr.h"
 #include "inode.h"
 
 /*
@@ -702,6 +703,7 @@ const struct inode_operations pmfs_dir_inode_operations = {
 	.mknod		= pmfs_mknod,
 	.rename		= pmfs_rename,
 	.setattr	= pmfs_notify_change,
+	.listxattr      = pmfs_listxattr,
 	.get_acl	= NULL,
 };
 

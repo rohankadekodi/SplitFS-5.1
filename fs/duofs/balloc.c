@@ -29,7 +29,7 @@
 #define PAGES_PER_2MB_MASK (PAGES_PER_2MB - 1)
 #define IS_BLOCK_2MB_ALIGNED(block) \
 	(!(block & PAGES_PER_2MB_MASK))
-#define IS_DATABLOCKS_2MB_ALIGNED(numblocks)	\
+#define IS_DATABLOCKS_2MB_ALIGNED(num_blocks)	\
 	(!(num_blocks & PAGES_PER_2MB_MASK))
 
 int pmfs_alloc_block_free_lists(struct super_block *sb)
@@ -1003,12 +1003,15 @@ static int not_enough_blocks(struct free_list *free_list,
 }
 
 /* Find out the free list with most free blocks */
-static int pmfs_get_candidate_free_list(struct super_block *sb)
+static int pmfs_get_candidate_free_list(struct super_block *sb, int num_req_blocks)
 {
 	struct pmfs_sb_info *sbi = PMFS_SB(sb);
 	struct free_list *free_list;
 	int cpuid = 0;
+	int cpuid_holes = -1;
 	int num_free_blocks = 0;
+	int num_free_holes = 0;
+	int max_free_holes = 0;
 	int i;
 	int numa_node;
 	int flag = 0;
@@ -1040,11 +1043,20 @@ static int pmfs_get_candidate_free_list(struct super_block *sb)
 				cpuid = i;
 				num_free_blocks = free_list->num_free_blocks;
 			}
+			if (!IS_DATABLOCKS_2MB_ALIGNED(num_req_blocks)) {
+				num_free_holes = free_list->num_free_blocks -
+					(free_list->num_blocknode_huge_aligned*PAGES_PER_2MB);
+				if (num_free_holes > max_free_holes && num_free_holes >= num_req_blocks) {
+					max_free_holes = num_free_holes;
+					cpuid_holes = i;
+				}
+			}
 		}
 	}
 
  out:
-	return cpuid;
+
+	return cpuid_holes >= 0 ? cpuid_holes : cpuid;
 }
 
 /* Find out the free list with most holes */
@@ -1120,6 +1132,7 @@ int pmfs_new_blocks(struct super_block *sb, unsigned long *blocknr,
 	if (cpuid == ANY_CPU)
 		cpuid = pmfs_get_cpuid(sb);
 
+#if 0
 	if (!IS_DATABLOCKS_2MB_ALIGNED(num_blocks)) {
 		free_list = pmfs_get_free_list(sb, cpuid);
 		spin_lock(&free_list->s_lock);
@@ -1130,6 +1143,7 @@ int pmfs_new_blocks(struct super_block *sb, unsigned long *blocknr,
 			goto alloc;
 		}
 	}
+#endif
 
  retry:
 
@@ -1149,7 +1163,7 @@ int pmfs_new_blocks(struct super_block *sb, unsigned long *blocknr,
 
 		spin_unlock(&free_list->s_lock);
 
-		cpuid = pmfs_get_candidate_free_list(sb);
+		cpuid = pmfs_get_candidate_free_list(sb, num_blocks);
 		retried++;
 		goto retry;
 	}

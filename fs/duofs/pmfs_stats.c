@@ -65,11 +65,9 @@ void pmfs_print_available_hugepages(struct super_block *sb)
 	for (i = 0; i < sbi->cpus; i++) {
 		free_list = pmfs_get_free_list(sb, i);
 		num_hugepages += free_list->num_blocknode_huge_aligned;
-		/*
 		printk("free list idx %d, free hugepages %lu, free unaligned pages %lu\n",
 		       free_list->index, free_list->num_blocknode_huge_aligned,
 		       free_list->num_blocknode_unaligned);
-		*/
 		num_free_blocks += free_list->num_free_blocks;
 	}
 	printk("Total free hugepages %lu, Total free blocks = %lu, Possible free hugepages = %lu\n",

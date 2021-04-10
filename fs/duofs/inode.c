@@ -777,8 +777,8 @@ static int recursive_alloc_blocks(pmfs_transaction_t *trans,
 				num_blocks = last_index - i + 1;
 
 				/* Break large allocations into 2MB chunks */
-				if (num_blocks > 512) {
-					num_blocks = 512;
+				if (num_blocks > 511) {
+					num_blocks = 511;
 				}
 
 				allocated = pmfs_new_data_blocks(sb, pi,

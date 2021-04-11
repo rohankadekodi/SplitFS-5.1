@@ -1046,7 +1046,7 @@ static int pmfs_get_candidate_free_list(struct super_block *sb, int num_req_bloc
 			if (num_req_blocks != 512) {
 				num_free_holes = free_list->num_free_blocks -
 					(free_list->num_blocknode_huge_aligned*PAGES_PER_2MB);
-				if (num_free_holes > max_free_holes) {
+				if (num_free_holes > max_free_holes && num_free_holes >= num_req_blocks) {
 					max_free_holes = num_free_holes;
 					cpuid_holes = i;
 				}

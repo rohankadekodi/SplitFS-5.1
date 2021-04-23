@@ -263,6 +263,12 @@ static int pmfs_init_blockmap_from_inode(struct super_block *sb)
 				PMFS_ASSERT(0);
 			blknode->range_low = le64_to_cpu(entry->range_low);
 			blknode->range_high = le64_to_cpu(entry->range_high);
+
+			if (blknode->range_low == 0 && blknode->range_high == 0) {
+				pmfs_free_blocknode(sb, blknode);
+				goto next;
+			}
+
 			cpuid = get_block_cpuid(sbi, blknode->range_low);
 
 			/* FIXME: Assume NR_CPUS not change */
@@ -288,6 +294,7 @@ static int pmfs_init_blockmap_from_inode(struct super_block *sb)
 				goto out;
 			}
 			free_list->num_free_blocks += blknode->range_high - blknode->range_low + 1;
+		next:
 			curr_p += sizeof(struct pmfs_range_node_lowhigh);
 			blocknode_ctr++;
 		}
@@ -393,6 +400,11 @@ static int pmfs_init_inode_list_from_inode(struct super_block *sb)
 			range_node->range_low = entry->range_low & ~CPUID_MASK;
 			range_node->range_high = entry->range_high;
 
+			if (range_node->range_low == 0 && range_node->range_high == 0) {
+				pmfs_free_inode_node(sb, range_node);
+				goto next;
+			}
+
 			pmfs_dbg_verbose("%s: inode_node_ctr = %lu, block_ctr = %lu, pi->i_size = %lu, range_node->range_low = %lu, range_node->range_high = %lu, total_inode_nodes = %lu\n",
 				 __func__, inode_node_ctr, block_ctr, pi->i_size, range_node->range_low & ~CPUID_MASK, range_node->range_high, total_inode_nodes);
 			ret = pmfs_insert_inodetree(sbi, range_node, cpuid);
@@ -413,6 +425,7 @@ static int pmfs_init_inode_list_from_inode(struct super_block *sb)
 			if (!inode_map->first_inode_range)
 				inode_map->first_inode_range = range_node;
 
+		next:
 			curr_p += sizeof(struct pmfs_range_node_lowhigh);
 			blocknode_ctr++;
 		}

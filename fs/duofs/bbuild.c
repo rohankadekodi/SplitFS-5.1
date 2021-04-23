@@ -246,8 +246,8 @@ static int pmfs_init_blockmap_from_inode(struct super_block *sb)
 
 	sbi->num_blocknode_allocated = 0;
 
-	pmfs_dbg("total_blocknodes = %lu, num_blocks = %lu, num_free_blocks = %lu\n",
-		 total_blocknodes, sbi->num_blocks, sbi->num_free_blocks);
+	pmfs_dbg("total_blocknodes = %lu, num_blocks = %lu, num_free_blocks = %lu, blocknode mapping file size = %lu\n",
+		 total_blocknodes, sbi->num_blocks, sbi->num_free_blocks, pi->i_size);
 
 	for (block_ctr = 0; block_ctr < pi->i_size / sbi->blocksize; block_ctr++) {
 		__pmfs_find_data_blocks(sb, pi, block_ctr, &curr_p, 1);
@@ -361,6 +361,7 @@ static int pmfs_init_inode_list_from_inode(struct super_block *sb)
 	unsigned long total_inode_nodes = sbi->num_inodenode_allocated;
 	unsigned long num_inode_node = 0;
 	unsigned long inode_node_ctr = 0;
+	unsigned long blocknode_ctr = 0;
 	struct inode_map *inode_map;
 
 	sbi->num_inodenode_allocated = 0;
@@ -372,7 +373,7 @@ static int pmfs_init_inode_list_from_inode(struct super_block *sb)
 
 		for (inode_node_ctr = 0; inode_node_ctr < RANGENODE_PER_PAGE; inode_node_ctr++) {
 
-			if (inode_node_ctr == total_inode_nodes)
+			if (blocknode_ctr == total_inode_nodes)
 				break;
 
 			entry = (struct pmfs_range_node_lowhigh *)pmfs_get_block(sb, curr_p);
@@ -391,6 +392,9 @@ static int pmfs_init_inode_list_from_inode(struct super_block *sb)
 
 			range_node->range_low = entry->range_low & ~CPUID_MASK;
 			range_node->range_high = entry->range_high;
+
+			pmfs_dbg_verbose("%s: inode_node_ctr = %lu, block_ctr = %lu, pi->i_size = %lu, range_node->range_low = %lu, range_node->range_high = %lu, total_inode_nodes = %lu\n",
+				 __func__, inode_node_ctr, block_ctr, pi->i_size, range_node->range_low & ~CPUID_MASK, range_node->range_high, total_inode_nodes);
 			ret = pmfs_insert_inodetree(sbi, range_node, cpuid);
 			if (ret) {
 				pmfs_err(sb, "%s failed\n", __func__);
@@ -410,6 +414,7 @@ static int pmfs_init_inode_list_from_inode(struct super_block *sb)
 				inode_map->first_inode_range = range_node;
 
 			curr_p += sizeof(struct pmfs_range_node_lowhigh);
+			blocknode_ctr++;
 		}
 	}
 
@@ -585,8 +590,8 @@ void pmfs_save_blocknode_mappings(struct super_block *sb)
 	if (num_blocknode % RANGENODE_PER_PAGE)
 		num_pages++;
 
-	pmfs_dbg_verbose("%s: num blocknodes to save = %lu. num pages = %lu\n",
-		 __func__, num_blocknode, num_pages);
+	pmfs_dbg("%s: num blocknodes to save = %lu. num pages = %lu, num_blocknode_allocated = %lu\n",
+		 __func__, num_blocknode, num_pages, sbi->num_blocknode_allocated);
 
 	/*
 	num_blocks = ((sbi->num_blocknode_allocated * sizeof(struct

@@ -722,6 +722,8 @@ static void pmfs_recover_truncate_list(struct super_block *sb)
 		iput(inode);
 		pmfs_flush_buffer(pi, CACHELINE_SIZE, false);
 		ino_next = le64_to_cpu(li->i_next_truncate);
+		if (ino_next == pi->pmfs_ino)
+			break;
 	}
 	PERSISTENT_MARK();
 	PERSISTENT_BARRIER();

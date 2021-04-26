@@ -848,8 +848,7 @@ static int pmfs_build_blocknode_map(struct super_block *sb,
 				((initsize + initsize_2) >> (PAGE_SHIFT + 0x3));
 
 	/* Alloc memory to hold the block alloc bitmap */
-	final_bm->scan_bm_4K.bitmap = kzalloc(final_bm->scan_bm_4K.bitmap_size,
-					      GFP_KERNEL);
+	final_bm->scan_bm_4K.bitmap = vzalloc(final_bm->scan_bm_4K.bitmap_size);
 
 	if (!final_bm->scan_bm_4K.bitmap) {
 		kfree(final_bm);
@@ -885,7 +884,7 @@ static int pmfs_build_blocknode_map(struct super_block *sb,
 	ret = __pmfs_build_blocknode_map(sb, final_bm->scan_bm_4K.bitmap,
 			final_bm->scan_bm_4K.bitmap_size * 8, PAGE_SHIFT - 12);
 
-	kfree(final_bm->scan_bm_4K.bitmap);
+	vfree(final_bm->scan_bm_4K.bitmap);
 	kfree(final_bm);
 
 	return ret;
@@ -900,9 +899,9 @@ static void free_bm(struct super_block *sb)
 	for (i = 0; i < sbi->cpus; i++) {
 		bm = global_bm[i];
 		if (bm) {
-			kfree(bm->scan_bm_4K.bitmap);
-			kfree(bm->scan_bm_2M.bitmap);
-			kfree(bm->scan_bm_1G.bitmap);
+			vfree(bm->scan_bm_4K.bitmap);
+			vfree(bm->scan_bm_2M.bitmap);
+			vfree(bm->scan_bm_1G.bitmap);
 			kfree(bm);
 		}
 	}
@@ -929,12 +928,9 @@ static int alloc_bm(struct super_block *sb, unsigned long initsize, unsigned lon
 				((initsize + initsize_2) >> (PAGE_SHIFT_1G + 0x3));
 
 		/* Alloc memory to hold the block alloc bitmap */
-		bm->scan_bm_4K.bitmap = kzalloc(bm->scan_bm_4K.bitmap_size,
-			GFP_KERNEL);
-		bm->scan_bm_2M.bitmap = kzalloc(bm->scan_bm_2M.bitmap_size,
-			GFP_KERNEL);
-		bm->scan_bm_1G.bitmap = kzalloc(bm->scan_bm_1G.bitmap_size,
-			GFP_KERNEL);
+		bm->scan_bm_4K.bitmap = vzalloc(bm->scan_bm_4K.bitmap_size);
+		bm->scan_bm_2M.bitmap = vzalloc(bm->scan_bm_2M.bitmap_size);
+		bm->scan_bm_1G.bitmap = vzalloc(bm->scan_bm_1G.bitmap_size);
 
 		if (!bm->scan_bm_4K.bitmap || !bm->scan_bm_2M.bitmap ||
 				!bm->scan_bm_1G.bitmap)

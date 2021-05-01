@@ -358,7 +358,7 @@ static int pmfs_init_inode_list_from_inode(struct super_block *sb)
 	struct pmfs_inode *pi = pmfs_get_inode(sb, PMFS_INODELIST_IN0);
 	struct free_list *free_list;
 	struct pmfs_range_node_lowhigh *entry;
-	struct pmfs_range_node *range_node;
+	struct pmfs_range_node *range_node, *new_range_node;;
 	size_t size = sizeof(struct pmfs_range_node_lowhigh);
 	u64 curr_p;
 	u64 cpuid;
@@ -424,8 +424,19 @@ static int pmfs_init_inode_list_from_inode(struct super_block *sb)
 
 			inode_map = &sbi->inode_maps[cpuid];
 			inode_map->num_range_node_inode++;
-			if (!inode_map->first_inode_range)
-				inode_map->first_inode_range = range_node;
+			if (!inode_map->first_inode_range) {
+				new_range_node = pmfs_alloc_inode_node(sb);
+				if (new_range_node == NULL)
+					PMFS_ASSERT(0);
+				new_range_node->range_low = 0;
+				new_range_node->range_high = PMFS_NORMAL_INODE_START / sbi->cpus;
+				pmfs_dbg("inserted range node with range_low = %lu, "
+					 "range_high = %lu in inode_map first_inode_range "
+					 "with CPUID = %d\n", new_range_node->range_low,
+					 new_range_node->range_high, cpuid);
+				pmfs_insert_inodetree(sbi, new_range_node, cpuid);
+				inode_map->first_inode_range = new_range_node;
+			}
 
 		next:
 			curr_p += sizeof(struct pmfs_range_node_lowhigh);

@@ -400,10 +400,12 @@ static int pmfs_init_inode_list_from_inode(struct super_block *sb)
 			range_node->range_low = entry->range_low & ~CPUID_MASK;
 			range_node->range_high = entry->range_high;
 
+			/*
 			if (range_node->range_low == 0 && range_node->range_high == 0) {
 				pmfs_free_inode_node(sb, range_node);
 				goto next;
 			}
+			*/
 
 			pmfs_dbg_verbose("%s: inode_node_ctr = %lu, block_ctr = %lu, pi->i_size = %lu, range_node->range_low = %lu, range_node->range_high = %lu, total_inode_nodes = %lu\n",
 				 __func__, inode_node_ctr, block_ctr, pi->i_size, range_node->range_low & ~CPUID_MASK, range_node->range_high, total_inode_nodes);
